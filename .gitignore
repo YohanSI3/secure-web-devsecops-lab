@@ -1,0 +1,8 @@
+# Matériel TLS généré localement (CA, clés privées, certificats).
+# Jamais commité : régénéré via scripts/generate-local-ca.sh et
+# scripts/generate-server-cert.sh. Voir Notes/nginx/tls/.
+.tls/
+
+# Clés/certificats, où qu'ils traînent, par précaution.
+*.key
+*.pem

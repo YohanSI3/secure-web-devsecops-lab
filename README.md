@@ -4,11 +4,15 @@ Hands-on lab for building, hardening, and securing modern web infrastructure wit
 ## Installation
 
 ```bash
-./scripts/install-nginx.sh
+./scripts/install-nginx.sh          # nginx, version pinnée
+./scripts/setup-tls.sh              # CA locale + certificats TLS
+./scripts/deploy-all-environments.sh # contenu + config nginx, dev/staging/prod
 ```
 
-Installe Nginx dans une version pinnée (voir
-[`Notes/nginx/installation/`](Notes/nginx/installation/README.md)).
+Détail de chaque étape :
+[`Notes/nginx/installation/`](Notes/nginx/installation/README.md),
+[`Notes/nginx/tls/`](Notes/nginx/tls/README.md),
+[`Notes/nginx/environnements/`](Notes/nginx/environnements/README.md).
 
 ## Documentation
 

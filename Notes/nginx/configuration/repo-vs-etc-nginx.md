@@ -86,3 +86,7 @@ dès qu'un deuxième vhost sera ajouté (Phase 1 : séparation
 dev/staging/prod-lab) — l'ordre de déclaration déciderait alors du site par
 défaut, silencieusement. Il faudra alors déclarer `default_server`
 explicitement sur le bon server block plutôt que de compter sur l'ordre.
+
+> Suite donnée dans
+> [`Notes/nginx/environnements/separation-strategy.md`](../environnements/separation-strategy.md) :
+> `default_server` a été déclaré explicitement sur chaque environnement.
