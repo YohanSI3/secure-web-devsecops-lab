@@ -90,6 +90,62 @@ Nginx depuis les sources en modifiant sa chaîne de version — les deux
 hors de portée d'un simple ajustement de configuration, et non retenus ici
 pour cette raison.
 
+## Journalisation avancée
+
+[`conf.d/logging.conf`](conf.d/logging.conf) (niveau http, même logique
+déclaration/application que `limit_req_zone` — un `log_format` déclaré ici
+ne s'active nulle part tant qu'il n'est pas référencé explicitement dans
+un `access_log` de vhost) :
+
+```nginx
+log_format security_log
+    '$remote_addr - $remote_user [$time_local] '
+    '"$request" $status $body_bytes_sent '
+    '"$http_referer" "$http_user_agent" '
+    'rt=$request_time ssl="$ssl_protocol/$ssl_cipher" '
+    'req_id=$request_id';
+```
+
+Référencé dans chaque vhost (ex. dev) :
+
+```nginx
+add_header X-Request-Id $request_id always;
+
+access_log /var/log/nginx/secure-web-lab-dev.access.log security_log;
+error_log  /var/log/nginx/secure-web-lab-dev.error.log warn;
+```
+
+- **Format étendu plutôt que le `combined` implicite par défaut** — garde
+  la structure standard (compatible avec les outils qui savent déjà lire
+  du `combined`) et ajoute trois champs utiles absents par défaut :
+  - `rt=$request_time` — temps de traitement de la requête, utile pour
+    repérer une dégradation de performance sans corréler avec un outil
+    externe ;
+  - `ssl="$ssl_protocol/$ssl_cipher"` — protocole/suite réellement
+    négociés pour cette connexion précise, vérifiable directement dans le
+    log plutôt qu'en devant reproduire un test `curl -v` a posteriori
+    (rejoint [suites de chiffrement](#suites-de-chiffrement) ci-dessus).
+    Vide (`ssl="/"`) sur les entrées des blocs HTTP de redirection
+    (80/8080/8081), qui ne négocient aucun TLS — attendu, pas une erreur.
+  - `req_id=$request_id` — identifiant unique généré par Nginx pour
+    chaque requête (variable core, aucun module requis), **répété dans le
+    header de réponse** `X-Request-Id` : permet de retrouver la ligne de
+    log exacte correspondant à une réponse précise reçue par un client,
+    sans avoir à corréler par timestamp approximatif.
+- **`limit_req_log_level warn;`** (dans
+  [`conf.d/rate-limiting.conf`](conf.d/rate-limiting.conf)) — un rejet par
+  rate limiting est une application de politique attendue, pas une panne :
+  `warn` plutôt que le `error` par défaut de ce module.
+- **`error_log ... warn;` explicite sur chaque vhost** — changement
+  **nécessaire** pour que le point précédent ait un effet : `error_log`
+  ne retient par défaut que les messages de niveau `error` et plus grave,
+  donc des messages `limit_req` remontés en `warn` resteraient
+  silencieusement absents du fichier sans ce changement de seuil ici
+  aussi. Un des deux réglages sans l'autre aurait semblé fonctionner (pas
+  d'erreur de syntaxe) tout en ne produisant aucune ligne — piège
+  d'ordre de sévérité repéré avant déploiement plutôt qu'après coup en se
+  demandant pourquoi le fichier reste vide.
+
 ## Timeouts adaptés
 
 [`conf.d/timeouts.conf`](conf.d/timeouts.conf) (niveau http, même logique
@@ -461,6 +517,10 @@ user    0m0.002s
 sys     0m0.005s
 ```
 
+`client_header_timeout` confirmé fonctionnel : Nginx a coupé la connexion
+10.02s après le dernier octet reçu, sans attendre le `timeout 20`
+englobant.
+
 ### Protection contre divulgation de version
 
 Nécessite d'avoir redéployé **et** le contenu (`error.html` est un nouveau
@@ -482,8 +542,58 @@ page par défaut de Nginx — et toujours un code `404` réel
 (`curl -o /dev/null -w "%{http_code}"` pour le vérifier séparément du
 corps).
 
-*(sortie réelle à ajouter ici après exécution)*
+Exécuté :
 
-`client_header_timeout` confirmé fonctionnel : Nginx a coupé la connexion
-10.02s après le dernier octet reçu, sans attendre le `timeout 20`
-englobant.
+```text
+<!DOCTYPE html>
+<html lang="fr">
+...
+  <h1>Une erreur est survenue</h1>
+  <p>La requête n'a pas pu être traitée. Réessayez plus tard.</p>
+...
+```
+
+Page personnalisée confirmée servie à la place de la page par défaut de
+Nginx, code HTTP réel toujours `404` :
+
+```bash
+curl -sk -o /dev/null -w "%{http_code}\n" --resolve dev.secure-web-lab.local:8443:127.0.0.1 \
+  https://dev.secure-web-lab.local:8443/inexistant
+```
+```text
+404
+```
+
+### Journalisation avancée
+
+Nouveau fichier `conf.d/` : redéployer la config avant de tester.
+
+```bash
+./scripts/deploy-nginx-config.sh dev
+```
+
+```bash
+curl -sk -D - -o /dev/null --resolve dev.secure-web-lab.local:8443:127.0.0.1 \
+  https://dev.secure-web-lab.local:8443/ | grep -i x-request-id
+
+sudo tail -1 /var/log/nginx/secure-web-lab-dev.access.log
+```
+
+Attendu : le même identifiant apparaît dans le header `X-Request-Id` de la
+réponse **et** dans le champ `req_id=` de la dernière ligne du log
+d'accès — avec `rt=` et `ssl="TLSv1.3/TLS_AES_..."` (ou suite TLS 1.2 si
+forcé) renseignés.
+
+Pour vérifier le point de sévérité `limit_req_log_level`/`error_log` :
+déclencher un rejet 429 (voir
+[test rate limiting](#rate-limiting-1) plus haut), puis :
+
+```bash
+sudo tail -5 /var/log/nginx/secure-web-lab-dev.error.log
+```
+
+Attendu : une ligne `[warn]` mentionnant `limiting requests`, présente
+grâce au `error_log ... warn;` explicite — absente si l'un des deux
+réglages avait été omis.
+
+*(sortie réelle à ajouter ici après exécution)*
