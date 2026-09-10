@@ -229,5 +229,33 @@ symptôme ne garantit pas la même cause, et qu'il faut vérifier chaque
 couche (filtre isolé, backend/fichier surveillé, puis IP source) plutôt
 que de s'arrêter à la première explication plausible.
 
-*(sortie finale avec une IP non-loopback à ajouter ici une fois le test
-corrigé exécuté)*
+Test corrigé (IP réelle de la VM, plus loopback) — 12 requêtes vers des
+chemins inexistants sur `dev` :
+
+```text
+Status for the jail: nginx-404-flood
+|- Filter
+|  |- Currently failed: 1
+|  |- Total failed:     12
+|  `- File list:        /var/log/nginx/secure-web-lab-dev.access.log /var/log/nginx/secure-web-lab-prod.access.log /var/log/nginx/secure-web-lab-staging.access.log
+`- Actions
+   |- Currently banned: 1
+   |- Total banned:     1
+   `- Banned IP list:   172.23.201.189
+```
+
+Les 12 requêtes ont bien été comptées (`Total failed: 12`, seuil
+`maxretry = 10` dépassé) et l'IP source a été bannie
+(`Currently banned: 1`) — chaîne complète confirmée fonctionnelle :
+détection par fichier de log → seuil → action `nftables`. `Currently
+failed: 1` (et non 12) est normal : ce compteur retombe à 0 dès qu'un
+bannissement est déclenché pour cette IP, seul `Total failed` reste
+cumulatif.
+
+`172.23.201.189` est l'adresse de l'interface réseau de la VM WSL2
+elle-même (`hostname -I`) — désormais bannie sur les 6 ports du lab
+pendant 1h. Pour débannir avant expiration :
+
+```bash
+sudo fail2ban-client set nginx-404-flood unbanip 172.23.201.189
+```
