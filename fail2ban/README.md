@@ -49,7 +49,37 @@ pour ne pas ouvrir le port 22). `jail.local` charge après
 suffit à neutraliser ce défaut du paquet — fait dans
 [`jail.local`](jail.local).
 
-## Action de bannissement : `iptables-multiport` (défaut), pas `ufw`
+## Bug réel découvert à l'exécution : les jails ne voyaient jamais rien
+
+Après activation, `nginx-botsearch` et `nginx-404-flood` restaient à
+`Currently failed: 0` même après une requête réelle vers `/wp-login.php`
+qui, elle, apparaissait bien dans le fichier de log et matchait le filtre
+en test isolé (`fail2ban-regex <fichier> <filtre>` → `1 matched`). Le
+filtre n'était donc pas en cause.
+
+Cause trouvée dans `/var/log/fail2ban.log` :
+`fail2ban.filtersystemd [...]: INFO [nginx-botsearch] Jail is in
+operation now (process new journal entries)` — les deux jails tournaient
+en réalité sur le **backend `systemd`** (lecture du journal), pas sur nos
+fichiers `logpath` : `sudo fail2ban-client get nginx-botsearch logpath`
+répondait `No file is currently monitored`, confirmant qu'aucun fichier
+n'était surveillé. Or Nginx écrit ses logs directement dans les fichiers
+`access_log`/`error_log` (voir
+[`Notes/nginx/configuration/logs-et-privileges.md`](../Notes/nginx/configuration/logs-et-privileges.md)),
+jamais dans le journal systemd — les deux jails ne pouvaient donc
+structurellement rien détecter, quel que soit le trafic réel.
+
+Racine du problème : le même `/etc/fail2ban/jail.d/defaults-debian.conf`
+que pour `sshd` ci-dessus fixe aussi `backend = systemd` au niveau
+`[DEFAULT]` du paquet Ubuntu. `jail.local` ne surchargeait pas `backend`
+explicitement, donc nos jails héritaient de ce `systemd` au lieu du défaut
+`auto` de `jail.conf` (qui, lui, aurait correctement choisi un backend
+fichier). **Corrigé** en fixant `backend = pyinotify` explicitement au
+niveau `[DEFAULT]` de [`jail.local`](jail.local) — `python3-pyinotify` est
+déjà installé (dépendance tirée automatiquement par le paquet `fail2ban`
+à l'installation).
+
+## Action de bannissement : `nftables` (défaut réel du paquet Ubuntu), pas `ufw`
 
 fail2ban propose une action `banaction = ufw` toute prête. Volontairement
 **pas utilisée ici** : cette action shippée s'appuie sur les *profils
@@ -60,14 +90,25 @@ ports bruts (`ufw allow 8443/tcp`), sans profil d'application déclaré. Une
 jail avec `banaction = ufw` telle quelle référencerait un profil
 inexistant et échouerait silencieusement à bannir quoi que ce soit.
 
-`jail.local` ne fixe donc pas `banaction` et hérite du défaut de
-`/etc/fail2ban/jail.conf` : `iptables-multiport`. Cette action insère ses
-propres règles `DROP` dans une chaîne dédiée (`f2b-<jail>`), indépendante
-des chaînes gérées par ufw — les deux coexistent sans conflit, chacun gère
-ses propres règles dans netfilter. Point à revérifier si une future
-version de ce dépôt enregistre des profils d'application ufw : la bascule
-vers `banaction = ufw` deviendrait alors possible et plus lisible
-(`ufw status` montrerait aussi les IP bannies par fail2ban).
+`jail.local` ne fixe donc pas `banaction`. **Correction** : la première
+version de cette note affirmait qu'il héritait alors du défaut de
+`/etc/fail2ban/jail.conf` (`iptables-multiport`) — faux, vérifié après
+coup sur la machine réelle. Le paquet Ubuntu embarque
+`/etc/fail2ban/jail.d/defaults-debian.conf`, chargé avant `jail.local`,
+qui fixe `banaction = nftables` (et `banaction_allports = nftables[type=allports]`)
+au niveau `[DEFAULT]` — c'est ce qui s'applique réellement ici, pas la
+valeur de `jail.conf`. `nftables` cible directement des ports numériques
+(pas de profil d'application nommé), donc pas le même problème que l'action
+`ufw` : il fonctionne correctement avec les règles ufw à base de ports
+bruts de ce lab. `ufw` et fail2ban gèrent chacun leurs propres tables/
+chaînes nftables indépendantes — pas de conflit constaté.
+
+Point d'attention retenu de cette correction : ne pas déduire un
+comportement de `jail.conf` seul — `/etc/fail2ban/jail.d/*.conf` (livré par
+le paquet de la distribution, pas par ce dépôt) peut redéfinir le
+`[DEFAULT]` avant que `jail.local` ne s'applique. Toujours vérifier le
+comportement réellement actif (`fail2ban-client get <jail> ...`, logs) au
+lieu de ne lire que `jail.conf`.
 
 ## Script
 
@@ -137,17 +178,14 @@ Status for the jail: nginx-404-flood
    `- Banned IP list:
 ```
 
-`Currently failed: 0` / `Total failed: 0` sont attendus juste après un
-redémarrage sans trafic suspect réel — confirmé fonctionnel séparément par
-`fail2ban-regex` (voir plus haut) pour `nginx-404-flood`, et à confirmer
-pour `nginx-botsearch` par un test réel (une requête vers un chemin type
-`/wp-login.php` sur un des vhosts, puis re-vérifier `Currently failed`).
-
-Le champ `Journal matches: _SYSTEMD_UNIT=nginx.service + _COMM=nginx` sur
-`nginx-botsearch` vient de la définition livrée dans `jail.conf` du
-paquet (métadonnée utilisée seulement si `backend = systemd` — non
-demandé ici, `logpath` est explicitement fixé dans `jail.local`) ; affiché
-par `fail2ban-client status` indépendamment du backend réellement actif,
-donc pas une indication que la jail lit le journal systemd plutôt que le
-fichier de log. À confirmer par le test réel mentionné ci-dessus plutôt
-qu'à supposer.
+`Currently failed: 0` / `Total failed: 0` semblaient à première vue
+attendus juste après un redémarrage sans trafic suspect réel — mais un
+test réel (requête vers `/wp-login.php`) est resté lui aussi à 0, ce qui a
+mené à la découverte ci-dessus (« Bug réel découvert à l'exécution ») :
+**cette sortie ne prouvait pas que la jail attendait simplement du
+trafic, elle tournait sur le mauvais backend et n'aurait jamais rien vu.**
+Le champ `Journal matches: _SYSTEMD_UNIT=nginx.service + _COMM=nginx`
+affiché ici n'était donc pas une métadonnée inerte comme supposé dans une
+version précédente de cette note, mais l'indication — passée inaperçue au
+premier passage — que le backend actif était bien `systemd`. Après
+correctif (`backend = pyinotify`), sortie à revérifier et à coller ici.

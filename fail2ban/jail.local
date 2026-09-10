@@ -5,6 +5,14 @@
 bantime  = 1h
 findtime = 10m
 maxretry = 5
+# Le paquet fail2ban d'Ubuntu (/etc/fail2ban/jail.d/defaults-debian.conf,
+# chargé avant ce fichier) force `backend = systemd` par défaut : sans
+# cette ligne, nos jails écoutent le journal systemd au lieu des fichiers
+# `logpath` déclarés ci-dessous — et Nginx n'écrit jamais dans le journal
+# (il écrit directement dans ses fichiers access_log), donc les jails ne
+# voient jamais rien. Voir fail2ban/README.md pour le détail de cette
+# découverte.
+backend  = pyinotify
 
 # Ports des 3 vhosts du lab (voir firewall/README.md) : toute règle ici doit
 # rester synchronisée avec les ports réellement ouverts côté ufw et nginx.
