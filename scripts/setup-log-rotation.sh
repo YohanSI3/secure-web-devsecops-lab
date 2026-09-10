@@ -43,6 +43,12 @@ fi
 # un fichier du dépôt, possédé par l'utilisateur humain, échouerait cette
 # vérification ("Ignoring ... because the file owner is wrong"). À
 # recopier après toute modification de nginx/logrotate/secure-web-lab.conf.
+#
+# `rm -f` avant la copie : idempotent face à un symlink laissé par un
+# essai précédent (ou toute exécution antérieure de ce script) -- sans ce
+# nettoyage, `cp` refuse quand la destination est un symlink qui pointe
+# déjà vers le fichier source ("are the same file").
+sudo rm -f /etc/logrotate.d/secure-web-lab-nginx
 sudo cp "${REPO_ROOT}/nginx/logrotate/secure-web-lab.conf" /etc/logrotate.d/secure-web-lab-nginx
 sudo chown root:root /etc/logrotate.d/secure-web-lab-nginx
 sudo chmod 644 /etc/logrotate.d/secure-web-lab-nginx

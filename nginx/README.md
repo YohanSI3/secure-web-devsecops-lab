@@ -755,6 +755,14 @@ l'utilisateur humain, pas à root (voir « Copie, pas symlink » ci-dessus).
 Corrigé en copiant le fichier puis en le passant `root:root` dans le
 script.
 
+**Deuxième essai, échoué différemment** : le symlink laissé par le tout
+premier essai (avant ce correctif) restait en place au chemin de
+destination ; `cp` a refusé avec `are the same file` (source et
+destination pointaient vers le même inode à travers le symlink). Corrigé
+en ajoutant un `rm -f` de la destination juste avant la copie, rendant le
+script robuste à une exécution précédente dans n'importe quel état
+(absent, symlink d'un essai antérieur, ou déjà une copie).
+
 ```bash
 cat /etc/logrotate.d/nginx | head -1   # attendu : access.log error.log explicites, plus le glob *.log
 ```
