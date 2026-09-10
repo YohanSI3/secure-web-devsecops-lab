@@ -10,6 +10,7 @@ Hands-on lab for building, hardening, and securing modern web infrastructure wit
 ./scripts/deploy-all-environments.sh # contenu + config nginx, dev/staging/prod
 ./scripts/setup-firewall.sh         # ufw : n'expose que les ports utilisés par le lab
 ./scripts/setup-fail2ban.sh         # bannissement automatique des IP abusives
+./scripts/setup-log-rotation.sh     # rotation des logs par-site
 ```
 
 Détail de chaque étape :
@@ -19,6 +20,12 @@ Détail de chaque étape :
 [`Notes/nginx/environnements/`](Notes/nginx/environnements/README.md),
 [`Notes/ufw/`](Notes/ufw/README.md),
 [`Notes/fail2ban/`](Notes/fail2ban/README.md).
+
+Durcissement Nginx supplémentaire (suites de chiffrement, rate limiting,
+tailles de requêtes, timeouts, divulgation de version, journalisation,
+rotation de logs) : [`nginx/README.md`](nginx/README.md), déployé via
+`deploy-nginx-config.sh`/`deploy-static-site.sh` pour chaque environnement
+(pas de script dédié, ce sont des ajustements de la config déjà en place).
 
 ## Documentation
 

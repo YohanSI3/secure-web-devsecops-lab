@@ -155,10 +155,9 @@ confirmées par `sudo ls -la` dans la sortie de
 `deploy-all-environments.sh` pour dev/staging/prod) et sites bien activés
 (`sites-enabled/` contient les 3 vhosts).
 
-## Prochaines étapes (Phase 2)
+## Suite
 
-- firewall
-- fail2ban ou équivalent
-- rate limiting
-- contrôle des tailles de requêtes
-- timeouts adaptés
+Phase 2 du `ToDo.md` terminée. Voir [`nginx/README.md`](../../../nginx/README.md),
+[`firewall/README.md`](../../../firewall/README.md) et
+[`fail2ban/README.md`](../../../fail2ban/README.md) pour le détail des
+points traités ensuite.

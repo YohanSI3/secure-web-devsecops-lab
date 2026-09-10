@@ -146,6 +146,87 @@ error_log  /var/log/nginx/secure-web-lab-dev.error.log warn;
   d'ordre de sévérité repéré avant déploiement plutôt qu'après coup en se
   demandant pourquoi le fichier reste vide.
 
+**Découverte en préparant la rotation de logs** (ci-dessous) : les logs
+génériques `/var/log/nginx/access.log`/`error.log` — hérités de
+l'installation par défaut, sans rapport apparent avec les vhosts de ce
+lab — se sont révélés **toujours actifs**, avec des entrées récentes.
+Cause : ce sont les logs déclarés au niveau **http** dans
+`/etc/nginx/nginx.conf` (fichier stock, non versionné), qui servent de
+repli pour tout ce qui est journalisé **avant** que Nginx n'ait fini de
+déterminer à quel vhost une requête appartient — notamment un rejet
+`client_header_timeout` (408) déclenché avant que le header `Host` n'ait
+fini d'arriver : le processus de sélection du vhost ne s'est jamais
+terminé, donc rien à faire d'autre que journaliser sur le repli
+générique. Confirmé : le test `408` de la section
+[Timeouts](#timeouts-adaptés-1) ci-dessous apparaît dans ce fichier
+générique, **pas** dans `secure-web-lab-dev.error.log`. Point à garder en
+tête pour toute analyse de logs future : un incident très en amont
+(handshake TLS raté, en-têtes incomplets) peut échapper aux logs par-site
+et n'apparaître que dans les fichiers génériques.
+
+## Rotation de logs
+
+[`nginx/logrotate/secure-web-lab.conf`](logrotate/secure-web-lab.conf),
+relié à `/etc/logrotate.d/` par
+[`scripts/setup-log-rotation.sh`](../scripts/setup-log-rotation.sh) :
+
+```logrotate
+/var/log/nginx/secure-web-lab-*.access.log
+/var/log/nginx/secure-web-lab-*.error.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 root adm
+    sharedscripts
+    postrotate
+        [ -f /run/nginx.pid ] && kill -USR1 "$(cat /run/nginx.pid)"
+    endscript
+}
+```
+
+- **Pourquoi une config séparée plutôt que d'étendre celle du paquet
+  Ubuntu** (`/etc/logrotate.d/nginx`, glob `/var/log/nginx/*.log` par
+  défaut, qui couvrirait déjà nos logs par-site) : `logrotate` traite les
+  fichiers de `/etc/logrotate.d/` par ordre alphabétique, et **ignore
+  silencieusement** un fichier déjà pris en charge par une config
+  rencontrée plus tôt dans cet ordre. `nginx` (le fichier du paquet) est
+  alphabétiquement avant tout nom qu'on choisirait pour le nôtre — s'il
+  gardait son glob large, il « revendiquerait » nos logs par-site en
+  premier (avec ses propres réglages, `create 0640 www-data adm`), et
+  notre config dédiée ne s'appliquerait jamais, sans aucune erreur visible
+  pour le signaler. `scripts/setup-log-rotation.sh` restreint donc
+  d'abord le glob du fichier du paquet aux deux logs génériques
+  (`access.log`/`error.log`, ceux qu'il gérait réellement avant l'ajout
+  des vhosts de ce lab), laissant notre config dédiée gérer exclusivement
+  les logs par-site — chacune sur un périmètre disjoint, aucun
+  chevauchement possible.
+- **`create 0640 root adm`** plutôt que `www-data adm` (valeur du paquet)
+  ou que le `644` actuel des fichiers en place : `root` reste cohérent
+  avec le modèle déjà établi (ces fichiers sont ouverts par le **master**,
+  jamais par les workers — voir
+  [`Notes/nginx/configuration/logs-et-privileges.md`](../Notes/nginx/configuration/logs-et-privileges.md)),
+  et `adm` (groupe standard Debian/Ubuntu pour la lecture des logs
+  système, dont le compte humain de cette machine est déjà membre) permet
+  de consulter les logs sans `sudo` sans les rendre lisibles par tout le
+  système comme actuellement (`644`). Ce resserrement ne s'applique qu'aux
+  fichiers créés **après** la première rotation — les fichiers actuels
+  restent `644` jusque-là, transition attendue plutôt qu'à corriger
+  immédiatement.
+- **`kill -USR1` en `postrotate`, pas un `reload` complet** : signal
+  minimal qui ne fait que rouvrir les fichiers de log déjà configurés
+  (mécanisme détaillé dans
+  [`Notes/nginx/configuration/logs-et-privileges.md`](../Notes/nginx/configuration/logs-et-privileges.md))
+  sans recharger toute la config ni recréer de workers — la bonne
+  opération pour ce geste précis, plus légère qu'un `systemctl reload`.
+- **`delaycompress`** — le fichier tout juste tourné reste non compressé
+  un cycle de plus avant compression : si le worker qui vient de recevoir
+  son nouveau descripteur avait une écriture en cours vers l'ancien
+  fichier au moment exact du signal, elle a le temps de se terminer sans
+  écrire dans un fichier déjà compressé.
+
 ## Timeouts adaptés
 
 [`conf.d/timeouts.conf`](conf.d/timeouts.conf) (niveau http, même logique
@@ -521,6 +602,15 @@ sys     0m0.005s
 10.02s après le dernier octet reçu, sans attendre le `timeout 20`
 englobant.
 
+**Addendum découvert plus tard** (section
+[Journalisation avancée](#journalisation-avancée) ci-dessus) : ce `408`
+n'apparaît dans **aucun** log par-site (`secure-web-lab-dev.error.log`
+reste muet) — il atterrit dans le fichier générique
+`/var/log/nginx/error.log`, la requête n'ayant jamais fini d'être
+rattachée à un vhost avant le déclenchement du timeout. Une vérification
+qui se serait limitée à `secure-web-lab-dev.error.log` aurait conclu à
+tort que rien n'avait été journalisé.
+
 ### Protection contre divulgation de version
 
 Nécessite d'avoir redéployé **et** le contenu (`error.html` est un nouveau
@@ -584,6 +674,16 @@ réponse **et** dans le champ `req_id=` de la dernière ligne du log
 d'accès — avec `rt=` et `ssl="TLSv1.3/TLS_AES_..."` (ou suite TLS 1.2 si
 forcé) renseignés.
 
+Exécuté :
+
+```text
+X-Request-Id: 23419b18696901003b9e6d8f3b5c658d
+
+127.0.0.1 - - [10/Sep/2026:17:26:24 +0200] "GET / HTTP/1.1" 200 483 "-" "curl/8.5.0" rt=0.000 ssl="TLSv1.3/TLS_AES_256_GCM_SHA384" req_id=23419b18696901003b9e6d8f3b5c658d
+```
+
+Identifiant identique confirmé des deux côtés.
+
 Pour vérifier le point de sévérité `limit_req_log_level`/`error_log` :
 déclencher un rejet 429 (voir
 [test rate limiting](#rate-limiting-1) plus haut), puis :
@@ -595,5 +695,33 @@ sudo tail -5 /var/log/nginx/secure-web-lab-dev.error.log
 Attendu : une ligne `[warn]` mentionnant `limiting requests`, présente
 grâce au `error_log ... warn;` explicite — absente si l'un des deux
 réglages avait été omis.
+
+Exécuté :
+
+```text
+2026/09/10 17:27:37 [warn] 4847#4847: *78 limiting requests, excess: 20.670 by zone "lab", client: 127.0.0.1, server: dev.secure-web-lab.local, request: "GET / HTTP/1.1", host: "dev.secure-web-lab.local:8443"
+```
+
+Confirmé : les rejets par rate limiting apparaissent bien en `[warn]`
+dans `error_log`, avec le détail utile (`excess`, zone, client, requête) —
+les deux réglages (`limit_req_log_level warn;` + `error_log ... warn;`)
+fonctionnent ensemble comme prévu.
+
+### Rotation de logs
+
+```bash
+./scripts/setup-log-rotation.sh
+```
+
+Le script termine par un `logrotate -d` (dry-run, ne modifie aucun
+fichier) sur notre config : vérifier dans sa sortie qu'elle liste bien les
+fichiers `secure-web-lab-*.access.log`/`*.error.log` (pas les génériques),
+et qu'aucune ligne n'indique le fichier comme déjà traité par une config
+précédente (signe que la restriction du glob du paquet Ubuntu n'aurait
+pas fonctionné).
+
+```bash
+cat /etc/logrotate.d/nginx | head -1   # attendu : access.log error.log explicites, plus le glob *.log
+```
 
 *(sortie réelle à ajouter ici après exécution)*

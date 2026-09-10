@@ -44,13 +44,9 @@ temps réel au niveau réseau. Conséquences :
 - un bannissement est temporaire (`bantime`) : passé ce délai, l'IP est de
   nouveau autorisée à se connecter et peut recommencer.
 
-## Prochaines étapes (Phase 2)
+## Suite
 
-- configuration TLS propre (durcissement plus poussé)
-- désactivation méthodes inutiles
-- rate limiting
-- contrôle des tailles de requêtes
-- timeouts adaptés
-- protection contre divulgation de version
-- journalisation avancée
-- rotation de logs
+Phase 2 du `ToDo.md` terminée. Voir [`nginx/README.md`](../../nginx/README.md)
+pour le détail de chaque point traité ensuite (TLS, rate limiting,
+contrôle des tailles de requêtes, timeouts, divulgation de version,
+journalisation, rotation de logs).

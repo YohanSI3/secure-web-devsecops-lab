@@ -22,13 +22,7 @@ sont documentées dans
 [`firewall/README.md`](../../firewall/README.md) — cette note-ci ne
 couvre que le fonctionnement général, pas les choix spécifiques au projet.
 
-## Prochaines étapes (Phase 2)
+## Suite
 
-- configuration TLS propre (durcissement plus poussé)
-- désactivation méthodes inutiles
-- rate limiting
-- contrôle des tailles de requêtes
-- timeouts adaptés
-- protection contre divulgation de version
-- journalisation avancée
-- rotation de logs
+Phase 2 du `ToDo.md` terminée. Voir [`nginx/README.md`](../../nginx/README.md)
+pour le détail de chaque point traité ensuite.
