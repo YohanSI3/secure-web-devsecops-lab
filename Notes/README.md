@@ -1,9 +1,31 @@
 # Notes
 
-Journal d'apprentissage du projet. Contrairement à `docs/` (qui documentera
-l'architecture et les décisions finales du projet), ce dossier trace le
-**processus** : ce qui a été fait, comment, pourquoi, ce qui a été appris,
-et les commandes exactes utilisées.
+Journal d'apprentissage du projet : concepts, fonctionnement des
+technologies utilisées, pourquoi on fait les choses en général — de quoi
+comprendre un sujet avant de l'implémenter. Rédigé comme un cours qu'on se
+donne à soi-même, pas comme la documentation d'un produit.
+
+## Notes vs documentation technique
+
+`Notes/` ne documente **pas** les choix d'implémentation propres à ce
+projet — ceux-là vivent en dehors de ce dossier, **co-localisés avec
+l'artefact technique réel** qu'ils concernent (`nginx/README.md`,
+`scripts/README.md`, `firewall/README.md`, etc.) : quelles règles/valeurs
+ont été retenues ici, pourquoi, comment vérifier que c'est bien ce qui
+tourne. Objectif : qu'un ingénieur qui veut comprendre comment la prod de
+ce lab est réellement faite puisse lire directement le dossier technique
+concerné, sans repasser par tout le raisonnement pédagogique — et
+inversement, qu'on puisse relire `Notes/` pour comprendre *pourquoi* un
+choix documenté techniquement a été fait ainsi plutôt qu'autrement.
+
+En résumé :
+- `Notes/<outil>/` → cours (comment ça marche, pourquoi en général),
+- `<dossier-technique>/README.md` → décision (ce qu'on a choisi ici, pour
+  ce projet, et comment le vérifier).
+
+Chaque note technique renvoie vers la note `Notes/` correspondante pour le
+contexte d'apprentissage, et chaque note `Notes/` renvoie vers la note
+technique une fois l'implémentation faite.
 
 ## Organisation
 
