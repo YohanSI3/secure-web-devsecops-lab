@@ -5,6 +5,60 @@ le fonctionnement général des concepts TLS/HTTP sous-jacents, voir
 [`Notes/nginx/`](../Notes/nginx/README.md) (TLS, headers, environnements,
 utilisateur dédié).
 
+## `conf.d/` vs `snippets/` : quand utiliser lequel
+
+- **`conf.d/`** — directives déclarées **une seule fois**, qui s'appliquent
+  **automatiquement par héritage** à tous les server blocks en dessous
+  (y compris les blocs HTTP de redirection), sans étape d'inclusion à
+  faire ni à oublier ailleurs. Ex. [`request-limits.conf`](conf.d/request-limits.conf)
+  (`client_max_body_size` etc.) : on veut cette protection partout sans
+  exception, autant le garantir structurellement.
+- **`snippets/`** — directives qui doivent être **explicitement incluses à
+  l'endroit précis** où leur effet doit s'appliquer, soit parce que Nginx
+  l'exige techniquement (`limit_req_zone` ne se déclare qu'au niveau http
+  et n'active rien tant qu'un `limit_req zone=...;` n'est pas écrit là où
+  on veut l'appliquer — voir [`rate-limiting.conf`](snippets/rate-limiting.conf),
+  inclus dans le `location /` de chaque vhost), soit par choix délibéré de
+  contrôle explicite (`tls-hardening.conf`, `security-headers.conf`).
+
+Repère rapide : si la directive a une déclaration ET une application
+séparées (zone puis usage), l'application va en `snippets/` même si la
+déclaration reste en `conf.d/`. Si la directive s'applique directement là
+où elle est définie, `conf.d/` suffit.
+
+## Timeouts adaptés
+
+[`conf.d/timeouts.conf`](conf.d/timeouts.conf) (niveau http, même logique
+que `request-limits.conf` — voir la règle `conf.d/` vs `snippets/`
+ci-dessus) :
+
+```nginx
+client_header_timeout 10s;
+client_body_timeout   10s;
+send_timeout 10s;
+keepalive_timeout 65s;
+```
+
+- **`client_header_timeout`/`client_body_timeout` à `10s`** (défaut Nginx :
+  `60s`) — resserrés pour limiter l'exposition à une attaque par lenteur
+  volontaire (type *Slowloris* : maintenir des connexions ouvertes en
+  envoyant les en-têtes/le corps un octet à la fois, pour épuiser le
+  nombre de connexions disponibles). `10s` reste largement suffisant pour
+  un usage réel — l'envoi d'en-têtes/d'un petit corps de requête se fait en
+  pratique en millisecondes, pas en secondes, même sur une connexion
+  lente ; voir
+  [`Notes/nginx/timeouts/README.md`](../Notes/nginx/timeouts/README.md)
+  pour la limite réelle de cette protection.
+- **`send_timeout 10s`** — même logique côté écriture de la réponse : un
+  client qui cesse de lire (délibérément ou par lenteur anormale) libère
+  la connexion après 10s d'inactivité en écriture plutôt que de la retenir
+  jusqu'à 60s.
+- **`keepalive_timeout 65s`** — légèrement sous le défaut Nginx (`75s`) :
+  libère un peu plus tôt les connexions keep-alive inactives (donc le slot
+  de connexion associé) sans impact perceptible sur un usage réel — une
+  session de navigation normale enchaîne ses requêtes bien en dessous de
+  ce délai.
+
 ## Contrôle des tailles de requêtes
 
 [`conf.d/request-limits.conf`](conf.d/request-limits.conf) (niveau http,
@@ -282,9 +336,47 @@ dd if=/dev/urandom bs=1k count=200 2>/dev/null | curl -sk -o /dev/null -w "200k 
   https://dev.secure-web-lab.local:8443/
 ```
 
-Attendu : `50k -> 404` (accepté par Nginx niveau corps, rejeté ensuite par
-`try_files` faute de route POST — normal, ce site ne traite aucun POST) et
-`200k -> 413` (rejeté avant même d'atteindre la logique de routage,
-`client_max_body_size` dépassé).
+Exécuté :
+
+```text
+50k  -> 405
+200k -> 413
+```
+
+`200k -> 413` confirme la limite : rejeté avant même d'atteindre la
+logique de routage, `client_max_body_size` dépassé.
+
+`50k -> 405` (*Method Not Allowed*), pas `404` comme anticipé initialement
+dans cette note — plus juste en réalité : le module de fichiers statiques
+de Nginx (`ngx_http_static_module`, celui qui sert les fichiers via
+`root`/`try_files`) ne traite que `GET`/`HEAD` nativement et rejette tout
+autre verbe avec `405` **avant** de chercher quoi que ce soit sur disque —
+il n'y a donc jamais de tentative de résolution de route pour un `POST`
+sur ce site, contrairement à ce qui était supposé. Cohérent malgré tout
+avec l'objectif de la vérification : le corps de 50k a bien été accepté
+niveau taille (sinon on aurait eu `413` ici aussi), la requête a échoué
+plus loin dans le traitement, pour une raison différente mais tout aussi
+attendue sur un site purement statique.
+
+### Timeouts
+
+Test sur le port HTTP en clair (`8080`, dev — évite toute complication de
+handshake TLS pour ce test, `client_header_timeout` s'applique de la même
+façon une fois la connexion établie, TLS ou non) : envoyer une requête
+volontairement incomplète, puis attendre plus longtemps que le timeout
+avant de la compléter.
+
+```bash
+time (exec 3<>/dev/tcp/127.0.0.1/8080; \
+  printf 'GET / HTTP/1.1\r\nHost: dev.secure-web-lab.local\r\n' >&3; \
+  sleep 15; \
+  printf '\r\n' >&3; \
+  cat <&3) 2>&1 | tail -5
+```
+
+Attendu : Nginx ferme la connexion après ~10s d'inactivité
+(`client_header_timeout`), avant même que le `sleep 15` ne se termine et
+n'envoie la ligne vide qui aurait complété les en-têtes — `real` proche de
+`0m10s` dans la sortie de `time`, pas `0m15s`.
 
 *(sortie réelle à ajouter ici après exécution)*
