@@ -22,6 +22,9 @@ Détail réparti dans des fichiers séparés :
 - [`protocoles-tls-heritage-et-fusion.md`](protocoles-tls-heritage-et-fusion.md)
   — piège rencontré : `ssl_protocols` fusionne au lieu de remplacer entre
   deux déclarations au même niveau, et comment ça a été corrigé.
+- [`durcissement-suites-ocsp-resumption.md`](durcissement-suites-ocsp-resumption.md)
+  — suites de chiffrement, HSTS preload, OCSP/stapling, reprise de
+  session (Phase 2).
 
 ## Ce qui a été fait
 
@@ -76,5 +79,8 @@ suffixe de port dans l'URL de redirection).
 - Phase 1 : headers de sécurité de base (voir
   [`Notes/nginx/headers-securite/`](../headers-securite/README.md), fait
   dans la foulée).
-- Phase 2 : durcissement TLS plus poussé (suites de chiffrement précises,
-  HSTS preload le cas échéant, OCSP stapling, session resumption).
+- Phase 2 : durcissement TLS plus poussé — fait, voir
+  [`durcissement-suites-ocsp-resumption.md`](durcissement-suites-ocsp-resumption.md)
+  et [`nginx/README.md`](../../../nginx/README.md) pour les choix
+  concrets (suites de chiffrement, HSTS preload, OCSP stapling, reprise de
+  session).
