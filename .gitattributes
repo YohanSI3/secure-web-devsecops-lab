@@ -1,0 +1,10 @@
+# Force les fins de ligne LF dans le dépôt et à la sortie du checkout, quel
+# que soit `core.autocrlf` côté client (Windows convertit LF -> CRLF par
+# défaut, ce qui casse les scripts bash exécutés depuis WSL : `set -euo
+# pipefail\r` fait échouer `set` avec "invalid option name", le `\r` faisant
+# partie de l'argument). Voir Notes/nginx/utilisateur-dedie/ pour le
+# contexte de découverte de ce bug.
+* text=auto eol=lf
+
+*.sh  text eol=lf
+*.conf text eol=lf

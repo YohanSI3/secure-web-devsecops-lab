@@ -6,12 +6,14 @@ Hands-on lab for building, hardening, and securing modern web infrastructure wit
 ```bash
 ./scripts/install-nginx.sh          # nginx, version pinnée
 ./scripts/setup-tls.sh              # CA locale + certificats TLS
+./scripts/setup-nginx-user.sh       # utilisateur dédié + reconfiguration nginx
 ./scripts/deploy-all-environments.sh # contenu + config nginx, dev/staging/prod
 ```
 
 Détail de chaque étape :
 [`Notes/nginx/installation/`](Notes/nginx/installation/README.md),
 [`Notes/nginx/tls/`](Notes/nginx/tls/README.md),
+[`Notes/nginx/utilisateur-dedie/`](Notes/nginx/utilisateur-dedie/README.md),
 [`Notes/nginx/environnements/`](Notes/nginx/environnements/README.md).
 
 ## Documentation
