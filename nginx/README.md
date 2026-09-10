@@ -763,8 +763,26 @@ en ajoutant un `rm -f` de la destination juste avant la copie, rendant le
 script robuste à une exécution précédente dans n'importe quel état
 (absent, symlink d'un essai antérieur, ou déjà une copie).
 
-```bash
-cat /etc/logrotate.d/nginx | head -1   # attendu : access.log error.log explicites, plus le glob *.log
+Exécuté (après les deux correctifs ci-dessus) :
+
+```text
+Handling 1 logs
+
+rotating pattern: /var/log/nginx/secure-web-lab-*.access.log
+/var/log/nginx/secure-web-lab-*.error.log  after 1 days (14 rotations)
+empty log files are not rotated, old logs are removed
+considering log /var/log/nginx/secure-web-lab-dev.access.log
+  ...
+considering log /var/log/nginx/secure-web-lab-staging.error.log
+  ...
+not running postrotate script, since no logs were rotated
 ```
 
-*(sortie réelle à ajouter ici après ré-exécution du script corrigé)*
+Plus aucune erreur de propriétaire, les 6 fichiers (`dev`/`prod`/`staging`
+× `access`/`error`) sont bien reconnus et regroupés en un seul groupe
+logique (`sharedscripts`) par le pattern multi-lignes. `log has already
+been rotated`/`not running postrotate script` est le comportement normal
+d'un premier `-d` sans fichier d'état préexistant
+(`/var/lib/logrotate/status`) — confirme que la config est syntaxiquement
+valide et prête, la vraie rotation se déclenchera au prochain passage du
+timer `logrotate.timer` une fois le seuil `daily` atteint.
