@@ -5,6 +5,40 @@ le fonctionnement général des concepts TLS/HTTP sous-jacents, voir
 [`Notes/nginx/`](../Notes/nginx/README.md) (TLS, headers, environnements,
 utilisateur dédié).
 
+## Contrôle des tailles de requêtes
+
+[`conf.d/request-limits.conf`](conf.d/request-limits.conf) (niveau http,
+s'applique donc aussi aux server blocks HTTP de redirection, pas
+seulement aux vhosts HTTPS) :
+
+```nginx
+client_max_body_size 100k;
+client_body_buffer_size 16k;
+client_header_buffer_size 1k;
+large_client_header_buffers 4 8k;
+```
+
+- **`client_max_body_size 100k`** — largement en dessous du défaut Nginx
+  (`1m`), assumé délibérément : [`app/static-site/`](../app/static-site/)
+  ne reçoit aucun upload ni formulaire, une limite basse ferme cette
+  surface sans retirer de fonctionnalité réelle — cohérent avec l'objectif
+  d'un site réaliste plutôt qu'artificiellement bridé (le contraire de
+  l'item retiré du `ToDo.md` sur les méthodes HTTP : ici on borne une
+  ressource qu'aucun usage légitime du site n'utilise, on ne retire rien
+  qu'un vrai visiteur attendrait).
+- **`client_body_buffer_size 16k`** — valeur par défaut de Nginx sur
+  Linux 64 bits, gardée telle quelle : les corps de requête plus petits que
+  ce seuil restent en mémoire, les plus gros (jusqu'à `client_max_body_size`)
+  débordent vers les fichiers temporaires de
+  [`/var/lib/nginx/body`](../Notes/nginx/utilisateur-dedie/permissions-et-repertoires-temporaires.md)
+  déjà repris par l'utilisateur dédié aux workers.
+- **`client_header_buffer_size`** / **`large_client_header_buffers`** —
+  valeurs par défaut de Nginx, déclarées ici explicitement (traçabilité)
+  plutôt que laissées implicites : bornent la ligne de requête et les
+  en-têtes, une surface différente du corps de requête (un en-tête
+  anormalement long — cookie surdimensionné, en-tête forgé — n'a pas
+  besoin d'un corps de requête pour poser problème).
+
 ## Rate limiting
 
 [`conf.d/rate-limiting.conf`](conf.d/rate-limiting.conf) (niveau http,
@@ -174,6 +208,8 @@ le nouveau symlink, pas seulement recharger.
 
 ## Vérification
 
+### TLS (suites, session, HSTS)
+
 ```bash
 curl -sk -v --resolve secure-web-lab.local:443:127.0.0.1 \
   https://secure-web-lab.local/ 2>&1 | grep -iE 'SSL connection|Cipher|strict-transport'
@@ -183,6 +219,25 @@ Attendu : une suite `ECDHE-*-GCM-*` ou `ECDHE-*-CHACHA20-*` (TLS 1.2) ou
 `TLS_AES_*`/`TLS_CHACHA20_*` (TLS 1.3 — nom de suite différent car négocié
 indépendamment de `ssl_ciphers`), et le header HSTS se terminant par
 `; preload`.
+
+Exécuté :
+
+```text
+* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / X25519 / RSASSA-PSS
+< Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+```
+
+Client et serveur ont négocié TLS 1.3 (curl le préfère par défaut quand
+les deux en sont capables) avec `X25519` comme courbe d'échange de clé
+(forward secrecy confirmée) — cohérent avec les suites configurées. Pour
+observer concrètement une des 6 suites `ECDHE-*` de `ssl_ciphers` plutôt
+que le nom de suite TLS 1.3 (différent, non listé dans `ssl_ciphers`),
+forcer TLS 1.2 côté client :
+
+```bash
+curl -sk -v --tls-max 1.2 --resolve secure-web-lab.local:443:127.0.0.1 \
+  https://secure-web-lab.local/ 2>&1 | grep -i 'SSL connection'
+```
 
 ### Rate limiting
 
@@ -205,18 +260,31 @@ d'IP à s'auto-exempter.
 Exécuté :
 
 ```text
-* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / X25519 / RSASSA-PSS
-< Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+     23 200
+      7 429
 ```
 
-Client et serveur ont négocié TLS 1.3 (curl le préfère par défaut quand
-les deux en sont capables) avec `X25519` comme courbe d'échange de clé
-(forward secrecy confirmée) — cohérent avec les suites configurées. Pour
-observer concrètement une des 6 suites `ECDHE-*` de `ssl_ciphers` plutôt
-que le nom de suite TLS 1.3 (différent, non listé dans `ssl_ciphers`),
-forcer TLS 1.2 côté client :
+23 plutôt qu'exactement 20 : la boucle n'envoie pas les requêtes de façon
+parfaitement instantanée (coût TLS handshake + résolution locale à chaque
+itération), donc une partie du débit **soutenu** (`10r/s`) se consomme
+aussi pendant le test, en plus des 20 du `burst` — comportement normal de
+l'algorithme, pas un signe que le seuil est mal réglé.
+
+### Contrôle des tailles de requêtes
 
 ```bash
-curl -sk -v --tls-max 1.2 --resolve secure-web-lab.local:443:127.0.0.1 \
-  https://secure-web-lab.local/ 2>&1 | grep -i 'SSL connection'
+# Corps de requête sous la limite (doit passer) puis au-dessus (doit être rejeté)
+dd if=/dev/urandom bs=1k count=50  2>/dev/null | curl -sk -o /dev/null -w "50k  -> %{http_code}\n" \
+  --resolve dev.secure-web-lab.local:8443:127.0.0.1 -X POST --data-binary @- \
+  https://dev.secure-web-lab.local:8443/
+dd if=/dev/urandom bs=1k count=200 2>/dev/null | curl -sk -o /dev/null -w "200k -> %{http_code}\n" \
+  --resolve dev.secure-web-lab.local:8443:127.0.0.1 -X POST --data-binary @- \
+  https://dev.secure-web-lab.local:8443/
 ```
+
+Attendu : `50k -> 404` (accepté par Nginx niveau corps, rejeté ensuite par
+`try_files` faute de route POST — normal, ce site ne traite aucun POST) et
+`200k -> 413` (rejeté avant même d'atteindre la logique de routage,
+`client_max_body_size` dépassé).
+
+*(sortie réelle à ajouter ici après exécution)*
