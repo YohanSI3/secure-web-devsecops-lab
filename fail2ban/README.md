@@ -11,6 +11,7 @@ actions, comment fail2ban détecte puis agit), voir
 |---|---|---|---|---|
 | `nginx-botsearch` | livré avec fail2ban | logs des 3 vhosts | défaut du filtre | 1h |
 | `nginx-404-flood` | [`filter.d/nginx-404-flood.conf`](filter.d/nginx-404-flood.conf) (custom) | logs des 3 vhosts | 10 requêtes 404 / 5 min | 1h |
+| `sshd` | livré avec fail2ban | — | — | désactivée explicitement |
 
 `nginx-botsearch` couvre les scans génériques classiques (recherche de
 `wp-login.php`, `.env`, `phpmyadmin`, etc.) indépendamment du contenu réel
@@ -33,6 +34,20 @@ ports déclarés dans [`firewall/README.md`](../firewall/README.md). Toute
 évolution des ports des vhosts doit être répercutée aux **deux** endroits
 (`fail2ban/jail.local` et les règles ufw), sinon une IP bannie reste
 capable d'atteindre un port omis.
+
+## Découvert à l'exécution : jail `sshd` activée par défaut
+
+Le paquet `fail2ban` d'Ubuntu embarque
+`/etc/fail2ban/jail.d/defaults-debian.conf`, qui active `[sshd]` par
+défaut (protection SSH prête à l'emploi hors de toute config de ce dépôt).
+Sans rapport avec `nginx-botsearch`/`nginx-404-flood`, mais incohérent
+avec ce lab : aucun `sshd` n'écoute sur cette machine (accès WSL direct,
+pas par le réseau — même décision déjà prise dans
+[`firewall/README.md`](../firewall/README.md#délibérément-non-ouvert--ssh-22tcp)
+pour ne pas ouvrir le port 22). `jail.local` charge après
+`jail.d/defaults-debian.conf`, donc y ajouter `[sshd]` / `enabled = false`
+suffit à neutraliser ce défaut du paquet — fait dans
+[`jail.local`](jail.local).
 
 ## Action de bannissement : `iptables-multiport` (défaut), pas `ufw`
 
@@ -95,4 +110,44 @@ sudo fail2ban-client status nginx-botsearch
 sudo fail2ban-client status nginx-404-flood
 ```
 
-*(sortie réelle à ajouter ici après exécution)*
+Exécuté (avant l'ajout de `[sshd] enabled = false` ci-dessus, d'où sa
+présence dans cette sortie) :
+
+```text
+Status
+|- Number of jail:      3
+`- Jail list:   nginx-404-flood, nginx-botsearch, sshd
+Status for the jail: nginx-botsearch
+|- Filter
+|  |- Currently failed: 0
+|  |- Total failed:     0
+|  `- Journal matches:  _SYSTEMD_UNIT=nginx.service + _COMM=nginx
+`- Actions
+   |- Currently banned: 0
+   |- Total banned:     0
+   `- Banned IP list:
+Status for the jail: nginx-404-flood
+|- Filter
+|  |- Currently failed: 0
+|  |- Total failed:     0
+|  `- Journal matches:
+`- Actions
+   |- Currently banned: 0
+   |- Total banned:     0
+   `- Banned IP list:
+```
+
+`Currently failed: 0` / `Total failed: 0` sont attendus juste après un
+redémarrage sans trafic suspect réel — confirmé fonctionnel séparément par
+`fail2ban-regex` (voir plus haut) pour `nginx-404-flood`, et à confirmer
+pour `nginx-botsearch` par un test réel (une requête vers un chemin type
+`/wp-login.php` sur un des vhosts, puis re-vérifier `Currently failed`).
+
+Le champ `Journal matches: _SYSTEMD_UNIT=nginx.service + _COMM=nginx` sur
+`nginx-botsearch` vient de la définition livrée dans `jail.conf` du
+paquet (métadonnée utilisée seulement si `backend = systemd` — non
+demandé ici, `logpath` est explicitement fixé dans `jail.local`) ; affiché
+par `fail2ban-client status` indépendamment du backend réellement actif,
+donc pas une indication que la jail lit le journal systemd plutôt que le
+fichier de log. À confirmer par le test réel mentionné ci-dessus plutôt
+qu'à supposer.

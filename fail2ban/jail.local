@@ -22,3 +22,12 @@ logpath  = /var/log/nginx/secure-web-lab-*.access.log
 maxretry = 10
 findtime = 5m
 bantime  = 1h
+
+# Le paquet fail2ban d'Ubuntu active cette jail par défaut, via
+# /etc/fail2ban/jail.d/defaults-debian.conf (fichier livré par le paquet,
+# non versionné ici) — sans rapport avec ce dépôt. Désactivée explicitement
+# pour rester cohérent avec le choix déjà documenté dans
+# firewall/README.md : aucun sshd n'écoute sur cette machine (accès via
+# l'intégration WSL, pas par le réseau), donc rien à surveiller ici.
+[sshd]
+enabled = false
