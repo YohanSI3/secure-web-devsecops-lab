@@ -24,7 +24,6 @@ couvre que le fonctionnement général, pas les choix spécifiques au projet.
 
 ## Prochaines étapes (Phase 2)
 
-- fail2ban ou équivalent
 - configuration TLS propre (durcissement plus poussé)
 - désactivation méthodes inutiles
 - rate limiting

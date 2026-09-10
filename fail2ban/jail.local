@@ -1,0 +1,24 @@
+# Jails actives pour ce lab. Voir fail2ban/README.md pour les choix
+# (pourquoi ces jails, ces seuils, pas d'intégration ufw) et Notes/fail2ban/
+# pour le fonctionnement général de fail2ban.
+[DEFAULT]
+bantime  = 1h
+findtime = 10m
+maxretry = 5
+
+# Ports des 3 vhosts du lab (voir firewall/README.md) : toute règle ici doit
+# rester synchronisée avec les ports réellement ouverts côté ufw et nginx.
+[nginx-botsearch]
+enabled  = true
+port     = 80,443,8080,8443,8081,8444
+filter   = nginx-botsearch
+logpath  = /var/log/nginx/secure-web-lab-*.access.log
+
+[nginx-404-flood]
+enabled  = true
+port     = 80,443,8080,8443,8081,8444
+filter   = nginx-404-flood
+logpath  = /var/log/nginx/secure-web-lab-*.access.log
+maxretry = 10
+findtime = 5m
+bantime  = 1h

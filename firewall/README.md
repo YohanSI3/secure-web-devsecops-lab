@@ -62,9 +62,42 @@ confirmation qui bloquerait un script non interactif).
 sudo ufw status verbose
 ```
 
-Attendu : `Status: active`, politique par défaut `deny (incoming)` /
-`allow (outgoing)`, et exactement les 6 règles du tableau ci-dessus (avec
-leurs commentaires), rien d'autre.
+Exécuté (WSL2 Ubuntu 24.04 dédiée, voir
+[`Notes/nginx/installation/README.md`](../Notes/nginx/installation/README.md)) :
+
+```text
+Status: active
+Logging: on (low)
+Default: deny (incoming), allow (outgoing), disabled (routed)
+New profiles: skip
+
+To                         Action      From
+--                         ------      ----
+80/tcp                     ALLOW IN    Anywhere                   # prod-lab HTTP (redirect vers HTTPS)
+443/tcp                    ALLOW IN    Anywhere                   # prod-lab HTTPS
+8080/tcp                   ALLOW IN    Anywhere                   # dev HTTP (redirect vers HTTPS)
+8443/tcp                   ALLOW IN    Anywhere                   # dev HTTPS
+8081/tcp                   ALLOW IN    Anywhere                   # staging HTTP (redirect vers HTTPS)
+8444/tcp                   ALLOW IN    Anywhere                   # staging HTTPS
+80/tcp (v6)                ALLOW IN    Anywhere (v6)              # prod-lab HTTP (redirect vers HTTPS)
+443/tcp (v6)               ALLOW IN    Anywhere (v6)              # prod-lab HTTPS
+8080/tcp (v6)              ALLOW IN    Anywhere (v6)              # dev HTTP (redirect vers HTTPS)
+8443/tcp (v6)              ALLOW IN    Anywhere (v6)              # dev HTTPS
+8081/tcp (v6)              ALLOW IN    Anywhere (v6)              # staging HTTP (redirect vers HTTPS)
+8444/tcp (v6)              ALLOW IN    Anywhere (v6)              # staging HTTPS
+```
+
+Deux points à noter, ni l'un ni l'autre demandés explicitement par le
+script :
+
+- **Doublon IPv4/IPv6 automatique** — chaque `ufw allow <port>/tcp`
+  génère une règle pour les deux piles ; aucune règle IPv6 séparée à
+  écrire à la main.
+- **`Logging: on (low)`** — activé par défaut par ufw dès l'activation, pas
+  par une option du script. Suffisant pour voir les paquets bloqués dans
+  `/var/log/ufw.log`, mais la journalisation détaillée (niveau, rotation,
+  corrélation avec les logs Nginx) reste un sujet à part entière — voir
+  Phase 2 : « journalisation avancée ».
 
 ## Limite connue : portée réelle sous WSL2
 
