@@ -30,4 +30,4 @@ sudo find "$DEST" -type d -exec chmod 750 {} \;
 sudo find "$DEST" -type f -exec chmod 640 {} \;
 
 echo "--- Déployé (${ENV}) dans ${DEST} ---"
-ls -la "$DEST"
+sudo ls -la "$DEST"

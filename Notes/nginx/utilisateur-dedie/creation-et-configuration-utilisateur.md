@@ -79,14 +79,18 @@ documentée) :
 
 ## `reload` suffit-il pour un changement d'utilisateur ?
 
-Point à vérifier empiriquement à l'exécution plutôt qu'à supposer : la
-directive `user` n'affecte que les workers, jamais le master (qui reste
+La directive `user` n'affecte que les workers, jamais le master (qui reste
 lancé par systemd, en root, quelle que soit cette directive — c'est lui qui
 a besoin de root pour *binder* les ports privilégiés, cf.
 [`Notes/nginx/installation/README.md`](../installation/README.md#modèle-de-privilèges--utilisateur-système-masterworker)).
 Un `reload` (SIGHUP) fait relire la config par le master et respawn des
 workers neufs avec cette config — en théorie suffisant, sans le court arrêt
-de service d'un `restart` complet. À confirmer avec
-`ps -eo user,pid,cmd | grep 'nginx: worker'` après le `reload` ; si les
-workers restent sous l'ancien utilisateur, `configure-nginx-user.sh` devra
-être complété d'un `systemctl restart nginx` pour ce cas précis.
+de service d'un `restart` complet.
+
+**Confirmé à l'exécution** (voir
+[`README.md`](README.md#ce-qui-a-été-fait-exécution-réelle)) :
+`ps -eo user,pid,cmd | grep 'nginx: worker'` juste après le `reload` de
+`configure-nginx-user.sh` a montré une coexistence transitoire d'anciens
+workers `www-data` (en cours de terminaison de leurs requêtes) et de
+nouveaux workers `secure-web-lab` (déjà actifs) — signature exacte d'un
+reload réussi, pas besoin de `restart`.

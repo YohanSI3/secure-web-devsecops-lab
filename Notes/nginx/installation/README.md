@@ -226,6 +226,31 @@ le temps). Si le projet a besoin de portabilité multi-OS plus poussée
 `infra/docker/` selon l'architecture du `ToDo.md`) plutôt que de complexifier
 ce script apt.
 
+### Cette limite constatée en pratique : dérive de distro WSL
+
+En reprenant le projet sur une nouvelle machine (Phase 2, voir
+[`Notes/nginx/utilisateur-dedie/`](../utilisateur-dedie/README.md)), la
+distro WSL "Ubuntu" par défaut de cette machine s'est révélée être en
+réalité Ubuntu 26.04 ("resolute"), pas 24.04 ("noble") — sans lien avec ce
+dépôt, simplement l'évolution normale d'une distro WSL nommée
+génériquement "Ubuntu" au fil des mises à jour majeures proposées par
+Canonical/Microsoft. `install-nginx.sh` a détecté l'écart (avertissement
+codename) et `apt-get install nginx=1.24.0-2ubuntu7.17` a échoué net :
+cette version n'existe simplement pas dans les dépôts d'une release plus
+récente (candidate disponible sur 26.04 : `1.28.3-2ubuntu1.10`).
+
+Décision prise : plutôt que de faire dériver le projet vers nginx 1.28 (ce
+qui aurait invalidé une partie du comportement déjà documenté/vérifié dans
+ces Notes sans le revérifier), installation d'une distro WSL séparée et
+dédiée, `Ubuntu-24.04`, via `wsl --install -d Ubuntu-24.04` — nommée
+explicitement par version plutôt que la distro "Ubuntu" générique
+préinstallée, précisément pour ne plus jamais subir ce genre de dérive
+silencieuse. Le dépôt a été re-cloné à l'intérieur de cette distro (dans
+son système de fichiers Linux natif, pas sous `/mnt/c/`, pour de meilleures
+performances et un modèle de permissions Unix natif plutôt qu'émulé par
+`drvfs`). C'est sur cette distro dédiée que la suite de la Phase 2 a été
+exécutée avec succès.
+
 ## Prochaines étapes (Phase 1)
 
 - page web statique simple servie par nginx
