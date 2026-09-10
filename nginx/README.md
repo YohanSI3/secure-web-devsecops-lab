@@ -167,7 +167,8 @@ et n'apparaître que dans les fichiers génériques.
 ## Rotation de logs
 
 [`nginx/logrotate/secure-web-lab.conf`](logrotate/secure-web-lab.conf),
-relié à `/etc/logrotate.d/` par
+**copié** (pas symlinké, exception au reste de ce dépôt — voir plus bas)
+dans `/etc/logrotate.d/` par
 [`scripts/setup-log-rotation.sh`](../scripts/setup-log-rotation.sh) :
 
 ```logrotate
@@ -187,6 +188,27 @@ relié à `/etc/logrotate.d/` par
 }
 ```
 
+- **Copie, pas symlink — découvert à l'exécution, pas anticipé** : le
+  premier essai symlinkait `nginx/logrotate/secure-web-lab.conf` comme
+  pour tous les autres fichiers de config de ce dépôt (`conf.d/`,
+  `snippets/`, `sites-available/`, `fail2ban/jail.local`...), et a échoué :
+  `logrotate -d` a refusé le fichier avec `Ignoring
+  /etc/logrotate.d/secure-web-lab-nginx because the file owner is wrong
+  (should be root or user with uid 0)`. logrotate — contrairement à
+  Nginx ou fail2ban — vérifie que **chaque fichier de config qu'il
+  exécute appartient à root**, précisément parce qu'il tourne lui-même en
+  root (timer systemd `logrotate.timer`) et exécute des commandes
+  arbitraires en `postrotate` : sans cette vérification, n'importe quel
+  utilisateur capable de déposer un fichier dans `/etc/logrotate.d/`
+  (ou, ici, un symlink vers un fichier qu'il possède ailleurs) pourrait
+  faire exécuter du code arbitraire en root au prochain passage du timer —
+  une élévation de privilèges triviale. Un symlink vers un fichier du
+  dépôt (possédé par l'utilisateur humain, pas root) échoue
+  structurellement cette vérification, quel que soit le
+  contenu du fichier. `scripts/setup-log-rotation.sh` copie donc le
+  fichier puis le rend explicitement `root:root` — au prix de devoir
+  relancer le script après toute modification du fichier versionné,
+  contrairement au reste du dépôt où éditer suffit avant un simple reload.
 - **Pourquoi une config séparée plutôt que d'étendre celle du paquet
   Ubuntu** (`/etc/logrotate.d/nginx`, glob `/var/log/nginx/*.log` par
   défaut, qui couvrirait déjà nos logs par-site) : `logrotate` traite les
@@ -720,8 +742,21 @@ et qu'aucune ligne n'indique le fichier comme déjà traité par une config
 précédente (signe que la restriction du glob du paquet Ubuntu n'aurait
 pas fonctionné).
 
+**Premier essai, échoué (bug réel, pas un souci de test)** :
+
+```text
+error: Ignoring /etc/logrotate.d/secure-web-lab-nginx because the file owner is wrong (should be root or user with uid 0).
+Handling 0 logs
+```
+
+Le premier essai symlinkait le fichier comme partout ailleurs dans ce
+dépôt — logrotate a rejeté le symlink car le fichier cible appartient à
+l'utilisateur humain, pas à root (voir « Copie, pas symlink » ci-dessus).
+Corrigé en copiant le fichier puis en le passant `root:root` dans le
+script.
+
 ```bash
 cat /etc/logrotate.d/nginx | head -1   # attendu : access.log error.log explicites, plus le glob *.log
 ```
 
-*(sortie réelle à ajouter ici après exécution)*
+*(sortie réelle à ajouter ici après ré-exécution du script corrigé)*

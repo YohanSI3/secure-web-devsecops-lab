@@ -7,9 +7,12 @@
 #   - /etc/logrotate.d/nginx (livré par le paquet Ubuntu) restreint aux
 #     deux logs génériques access.log/error.log (son glob par défaut,
 #     /var/log/nginx/*.log, couvrirait sinon aussi nos logs par-site) ;
-#   - nginx/logrotate/secure-web-lab.conf (ce dépôt), symlinké dans
-#     /etc/logrotate.d/, gère exclusivement nos logs par-site.
-# Voir nginx/README.md#rotation-de-logs et Notes/nginx/rotation-logs/.
+#   - nginx/logrotate/secure-web-lab.conf (ce dépôt), COPIÉ (pas
+#     symlinké, contrairement au reste de ce dépôt) dans /etc/logrotate.d/,
+#     gère exclusivement nos logs par-site.
+# Voir nginx/README.md#rotation-de-logs et Notes/nginx/rotation-logs/ pour
+# pourquoi logrotate impose une copie appartenant à root plutôt qu'un
+# symlink vers un fichier du dépôt (appartenant à l'utilisateur humain).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,7 +38,14 @@ else
   echo "${STOCK_CONF} absent — rien à restreindre."
 fi
 
-sudo ln -sf "${REPO_ROOT}/nginx/logrotate/secure-web-lab.conf" /etc/logrotate.d/secure-web-lab-nginx
+# Copie, pas symlink : logrotate refuse d'exécuter une config si le
+# fichier n'appartient pas à root (ou un compte uid 0) -- un symlink vers
+# un fichier du dépôt, possédé par l'utilisateur humain, échouerait cette
+# vérification ("Ignoring ... because the file owner is wrong"). À
+# recopier après toute modification de nginx/logrotate/secure-web-lab.conf.
+sudo cp "${REPO_ROOT}/nginx/logrotate/secure-web-lab.conf" /etc/logrotate.d/secure-web-lab-nginx
+sudo chown root:root /etc/logrotate.d/secure-web-lab-nginx
+sudo chmod 644 /etc/logrotate.d/secure-web-lab-nginx
 
 echo "--- Vérification (dry-run, ne modifie rien) ---"
 sudo logrotate -d /etc/logrotate.d/secure-web-lab-nginx

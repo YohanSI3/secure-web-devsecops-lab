@@ -66,3 +66,37 @@ aucun signal d'alerte — la raison directe du choix documenté dans
 [`nginx/README.md`](../../../nginx/README.md#rotation-de-logs) de
 restreindre le glob de la configuration livrée par le paquet Ubuntu
 plutôt que d'ajouter la nôtre à côté sans y toucher.
+
+## Pourquoi logrotate exige que ses fichiers de config appartiennent à root
+
+Contrairement à Nginx ou fail2ban (dont les fichiers de config peuvent
+être de simples symlinks vers des fichiers possédés par un utilisateur
+non-root, sans que ça pose problème), `logrotate` refuse d'exécuter tout
+fichier de `/etc/logrotate.d/` qui n'appartient pas à root (ou un compte
+uid 0) — vérification suivie à travers un symlink jusqu'au fichier réel.
+
+La différence tient à **qui exécute quoi, et avec quels privilèges**.
+Nginx et fail2ban lisent leur configuration pour piloter *leur propre*
+comportement (quels ports écouter, quelles règles appliquer) : un fichier
+de config falsifié changerait leur comportement, mais ne fait pas
+*exécuter de commande arbitraire* en dehors de ce que le programme
+lui-même sait faire. `logrotate`, lui, tourne périodiquement en root (via
+le timer systemd `logrotate.timer`) et **exécute textuellement** les
+commandes shell d'un bloc `postrotate`/`endscript` — si n'importe quel
+utilisateur pouvait déposer un fichier (ou un symlink vers un fichier
+qu'il possède) dans `/etc/logrotate.d/`, il pourrait y écrire n'importe
+quelle commande et la faire exécuter en root au prochain passage du
+timer : une élévation de privilèges triviale. Exiger que le fichier
+appartienne à root revient à exiger que seul quelqu'un ayant déjà les
+privilèges root ait pu le placer là — cohérent avec le principe déjà
+observé ailleurs dans ce lab (le master Nginx doit être root pour ouvrir
+les ports privilégiés, voir
+[`Notes/nginx/installation/README.md`](../installation/README.md)), mais
+appliqué ici à la configuration elle-même plutôt qu'à un port réseau.
+
+Conséquence pratique pour ce dépôt : `scripts/setup-log-rotation.sh`
+**copie** [`nginx/logrotate/secure-web-lab.conf`](../../../nginx/logrotate/secure-web-lab.conf)
+puis le passe `root:root`, plutôt que de le symlinker comme le reste de
+la configuration Nginx/fail2ban de ce dépôt — la copie doit être
+regénérée après toute modification du fichier versionné, contrairement au
+modèle « éditer le dépôt suffit » appliqué partout ailleurs.
