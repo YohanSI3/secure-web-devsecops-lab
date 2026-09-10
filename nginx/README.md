@@ -14,17 +14,81 @@ utilisateur dédié).
   (`client_max_body_size` etc.) : on veut cette protection partout sans
   exception, autant le garantir structurellement.
 - **`snippets/`** — directives qui doivent être **explicitement incluses à
-  l'endroit précis** où leur effet doit s'appliquer, soit parce que Nginx
-  l'exige techniquement (`limit_req_zone` ne se déclare qu'au niveau http
-  et n'active rien tant qu'un `limit_req zone=...;` n'est pas écrit là où
-  on veut l'appliquer — voir [`rate-limiting.conf`](snippets/rate-limiting.conf),
-  inclus dans le `location /` de chaque vhost), soit par choix délibéré de
-  contrôle explicite (`tls-hardening.conf`, `security-headers.conf`).
+  l'endroit précis** où leur effet doit s'appliquer, pour l'une de ces
+  raisons :
+  - Nginx l'exige techniquement côté déclaration/usage séparés :
+    `limit_req_zone` ne se déclare qu'au niveau http et n'active rien tant
+    qu'un `limit_req zone=...;` n'est pas écrit là où on veut l'appliquer —
+    voir [`rate-limiting.conf`](snippets/rate-limiting.conf), inclus dans
+    le `location /` de chaque vhost ;
+  - Nginx l'exige techniquement côté syntaxe : un bloc `location {}` ne
+    peut exister qu'**à l'intérieur** d'un bloc `server {}`, jamais
+    directement au niveau http — donc même une directive par ailleurs
+    "globale" comme `error_page` doit passer par un snippet dès qu'elle
+    s'accompagne d'un `location` (voir
+    [`custom-error-pages.conf`](snippets/custom-error-pages.conf)) ;
+  - choix délibéré de contrôle explicite (`tls-hardening.conf`,
+    `security-headers.conf`).
 
 Repère rapide : si la directive a une déclaration ET une application
 séparées (zone puis usage), l'application va en `snippets/` même si la
 déclaration reste en `conf.d/`. Si la directive s'applique directement là
 où elle est définie, `conf.d/` suffit.
+
+## Protection contre divulgation de version
+
+`server_tokens off;` ([`conf.d/security.conf`](conf.d/security.conf),
+Phase 1) supprime déjà le numéro de version Nginx du header `Server:` et
+du pied de page des pages d'erreur par défaut — mais ce pied de page
+continue d'afficher le mot **« nginx »** tout court (sans version), et le
+header `Server:` répond toujours `nginx` : l'identité du logiciel reste
+exposée, seule sa version disparaît.
+[`snippets/custom-error-pages.conf`](snippets/custom-error-pages.conf) va
+un cran plus loin sur les pages d'erreur (le header `Server: nginx` seul,
+lui, ne peut pas être supprimé/réécrit sans module tiers — voir plus bas) :
+
+```nginx
+error_page 403 404 405 413 429 500 502 503 504 /error.html;
+
+location = /error.html {
+    internal;
+}
+```
+
+- **Une page générique unique** plutôt qu'une page par code d'erreur :
+  [`app/static-site/error.html`](../app/static-site/error.html), sans
+  aucune mention de Nginx ni de la stack technique, réutilisée pour tous
+  les codes listés. Le code HTTP réel renvoyé au client n'est **pas**
+  affecté par `error_page` (pas de suffixe `=200` ici) : `curl -w
+  "%{http_code}"` continue de voir `404`, `429`, `413`, etc. — seul le
+  **corps** de la réponse change, pas le code transmis au client. Un site
+  réel distinguerait probablement les messages par code (« page introuvable »
+  vs « trop de requêtes ») ; une page unique reste volontairement plus
+  simple ici, le point démontré est l'absence de fuite d'identité
+  logicielle, pas le raffinement du message.
+- **Codes choisis** : uniquement ceux que ce site peut réellement produire
+  au vu de sa config actuelle — `404`/`405` (routage statique, méthode non
+  supportée par le module de fichiers statiques, cf.
+  [`Notes/nginx/controle-tailles-requetes/`](../Notes/nginx/controle-tailles-requetes/README.md)),
+  `413`/`429` (contrôle de taille et rate limiting, ci-dessous), `403`
+  (permissions), `500`/`502`/`503`/`504` (erreurs serveur génériques,
+  gardées par réalisme même si peu probables sans backend proxifié).
+- **`location = /error.html { internal; }`** — empêche qu'un client
+  demande cette page directement (`GET /error.html` répondrait `404`,
+  Nginx la réserve aux redirections internes déclenchées par
+  `error_page`). N'hérite pas de `snippets/rate-limiting.conf` (absent de
+  ce `location`) : servir une page d'erreur ne doit pas elle-même
+  consommer/déclencher le quota de rate limiting du client.
+
+**Limite connue, assumée** : le header `Server: nginx` (sans version)
+reste présent sur *toutes* les réponses, succès compris — Nginx ne permet
+pas nativement de le supprimer ou de le réécrire ; il faudrait soit un
+module tiers non officiel (`headers-more`, hors des dépôts Ubuntu
+utilisés par [`scripts/install-nginx.sh`](../scripts/install-nginx.sh),
+casserait la reproductibilité par paquet déjà en place), soit recompiler
+Nginx depuis les sources en modifiant sa chaîne de version — les deux
+hors de portée d'un simple ajustement de configuration, et non retenus ici
+pour cette raison.
 
 ## Timeouts adaptés
 
@@ -363,20 +427,63 @@ attendue sur un site purement statique.
 Test sur le port HTTP en clair (`8080`, dev — évite toute complication de
 handshake TLS pour ce test, `client_header_timeout` s'applique de la même
 façon une fois la connexion établie, TLS ou non) : envoyer une requête
-volontairement incomplète, puis attendre plus longtemps que le timeout
-avant de la compléter.
+volontairement incomplète, puis **attendre la réponse du serveur** sans
+jamais la compléter nous-mêmes.
 
 ```bash
-time (exec 3<>/dev/tcp/127.0.0.1/8080; \
-  printf 'GET / HTTP/1.1\r\nHost: dev.secure-web-lab.local\r\n' >&3; \
-  sleep 15; \
-  printf '\r\n' >&3; \
-  cat <&3) 2>&1 | tail -5
+time timeout 20 bash -c '
+  exec 3<>/dev/tcp/127.0.0.1/8080
+  printf "GET / HTTP/1.1\r\nHost: dev.secure-web-lab.local\r\n" >&3
+  cat <&3
+'
 ```
 
-Attendu : Nginx ferme la connexion après ~10s d'inactivité
-(`client_header_timeout`), avant même que le `sleep 15` ne se termine et
-n'envoie la ligne vide qui aurait complété les en-têtes — `real` proche de
-`0m10s` dans la sortie de `time`, pas `0m15s`.
+**Premier essai erroné, corrigé ici** : la version initiale de ce test
+insérait un `sleep 15` local entre les deux `printf`, puis mesurait le
+temps total avec `time`. Erreur de méthode — `sleep 15` bloque le script
+15 secondes *quoi qu'il arrive côté serveur* : que Nginx coupe la
+connexion à 10s ou la laisse ouverte 60s, le `real` mesuré restait ~15s
+dans les deux cas, puisque c'est notre propre attente locale qui dominait
+le chrono, pas le comportement de Nginx. Le test ne mesurait donc rien
+d'utile — corrigé ci-dessus en supprimant le `sleep` local et en attendant
+directement la réponse du serveur via `cat`, avec un `timeout 20`
+englobant pour éviter un blocage indéfini si le serveur ne coupe jamais.
+
+Attendu maintenant : Nginx ferme la connexion après ~10s d'inactivité
+(`client_header_timeout`), avant l'expiration du `timeout 20` englobant —
+`real` proche de `0m10s`.
+
+Exécuté :
+
+```text
+real    0m10.020s
+user    0m0.002s
+sys     0m0.005s
+```
+
+### Protection contre divulgation de version
+
+Nécessite d'avoir redéployé **et** le contenu (`error.html` est un nouveau
+fichier dans `app/static-site/`) **et** la config (`custom-error-pages.conf`
+est un nouveau snippet inclus dans les 3 vhosts) :
+
+```bash
+./scripts/deploy-static-site.sh dev
+./scripts/deploy-nginx-config.sh dev
+```
+
+```bash
+curl -sk --resolve dev.secure-web-lab.local:8443:127.0.0.1 \
+  https://dev.secure-web-lab.local:8443/inexistant
+```
+
+Attendu : le contenu de `error.html` (« Une erreur est survenue »), pas la
+page par défaut de Nginx — et toujours un code `404` réel
+(`curl -o /dev/null -w "%{http_code}"` pour le vérifier séparément du
+corps).
 
 *(sortie réelle à ajouter ici après exécution)*
+
+`client_header_timeout` confirmé fonctionnel : Nginx a coupé la connexion
+10.02s après le dernier octet reçu, sans attendre le `timeout 20`
+englobant.
