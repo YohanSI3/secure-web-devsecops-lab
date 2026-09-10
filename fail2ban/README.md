@@ -124,20 +124,35 @@ bien avant de compter sur un vrai comportement suspect pour le tester.
 ./scripts/setup-fail2ban.sh
 ```
 
-## Tester manuellement `nginx-404-flood`
+## Tester manuellement : `ignoreself` et pourquoi `127.0.0.1` ne suffit pas
+
+fail2ban ignore par défaut (`ignoreself = true`, réglage `[DEFAULT]` de
+`jail.conf`) tout trafic dont la source est une adresse locale de la
+machine elle-même (dont `127.0.0.1`) — protection pensée pour ne pas
+s'auto-bannir en testant. Constaté à l'exécution :
+`fail2ban.log` a bien montré le fichier correctement surveillé et la ligne
+détectée, mais aussi `[nginx-botsearch] Ignore 127.0.0.1 by ignoreself
+rule` : tester en ciblant `127.0.0.1` ne fera donc **jamais** apparaître de
+`Currently failed`, quel que soit le nombre de requêtes envoyées — pas un
+bug, un garde-fou qui s'applique avant même la logique de la jail.
+
+Pour un test réel, cibler l'IP de l'interface réseau de la VM plutôt que
+la boucle locale :
 
 ```bash
+VM_IP="$(hostname -I | awk '{print $1}')"
+
 for i in $(seq 1 12); do
-  curl -sk -o /dev/null --resolve dev.secure-web-lab.local:8443:127.0.0.1 \
+  curl -sk -o /dev/null --resolve "dev.secure-web-lab.local:8443:${VM_IP}" \
     "https://dev.secure-web-lab.local:8443/inexistant-$i"
 done
 
 sudo fail2ban-client status nginx-404-flood
 ```
 
-**Attention** : ce test bannit réellement l'IP source (ici la propre
-machine de test) sur les 6 ports du lab pendant 1h. Pour débannir sans
-attendre :
+**Attention** : ce test bannit réellement l'IP source (ici l'IP de la
+propre machine de test, mais plus la loopback exemptée) sur les 6 ports du
+lab pendant 1h. Pour débannir sans attendre :
 
 ```bash
 sudo fail2ban-client set nginx-404-flood unbanip <ip>
@@ -188,4 +203,31 @@ Le champ `Journal matches: _SYSTEMD_UNIT=nginx.service + _COMM=nginx`
 affiché ici n'était donc pas une métadonnée inerte comme supposé dans une
 version précédente de cette note, mais l'indication — passée inaperçue au
 premier passage — que le backend actif était bien `systemd`. Après
-correctif (`backend = pyinotify`), sortie à revérifier et à coller ici.
+correctif (`backend = pyinotify`) :
+
+```bash
+sudo fail2ban-client get nginx-botsearch logpath
+```
+```text
+Current monitored log file(s):
+|- /var/log/nginx/secure-web-lab-dev.access.log
+|- /var/log/nginx/secure-web-lab-prod.access.log
+`- /var/log/nginx/secure-web-lab-staging.access.log
+```
+
+Confirme le passage en surveillance de fichiers réels. Un nouveau test
+avec `/wp-login.php` restait pourtant à `Currently failed: 0` — cette
+fois pour une raison différente et attendue, pas un bug : la requête de
+test venait de `127.0.0.1`, systématiquement ignorée par la règle
+`ignoreself` de fail2ban (voir
+[« Tester manuellement »](#tester-manuellement--ignoreself-et-pourquoi-127001-ne-suffit-pas)
+ci-dessus pour le test corrigé, avec l'IP réelle de la VM). Bilan de cette
+série de débogages : deux causes distinctes empilées (backend, puis
+ignoreself) ont chacune produit le même symptôme (`Currently failed: 0`)
+pour des raisons entièrement différentes — un rappel que le même
+symptôme ne garantit pas la même cause, et qu'il faut vérifier chaque
+couche (filtre isolé, backend/fichier surveillé, puis IP source) plutôt
+que de s'arrêter à la première explication plausible.
+
+*(sortie finale avec une IP non-loopback à ajouter ici une fois le test
+corrigé exécuté)*
