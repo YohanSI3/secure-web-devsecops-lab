@@ -41,7 +41,6 @@
 - firewall,
 - fail2ban ou équivalent,
 - configuration TLS propre,
-- désactivation méthodes inutiles,
 - rate limiting,
 - contrôle des tailles de requêtes,
 - timeouts adaptés,
