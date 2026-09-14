@@ -18,7 +18,7 @@ ce lab.
 | Workflow | Déclencheur | Ce qu'il fait |
 |---|---|---|
 | [`nginx-lint.yml`](workflows/nginx-lint.yml) | push/PR sur `main` | `nginx -t` + [gixy](https://github.com/yandex/gixy) sur la config assemblée |
-| [`sast.yml`](workflows/sast.yml) | push/PR sur `main` | [Semgrep OSS](https://semgrep.dev) (`p/security-audit` + `p/bash`) |
+| [`sast.yml`](workflows/sast.yml) | push/PR sur `main` | [Semgrep OSS](https://semgrep.dev) (`p/security-audit` + `r/bash`) |
 | [`secrets-scan.yml`](workflows/secrets-scan.yml) | push/PR sur `main` | [gitleaks](https://github.com/gitleaks/gitleaks) sur tout l'historique |
 | [`build-artifact.yml`](workflows/build-artifact.yml) | push sur `main` | package + checksum du site statique |
 
@@ -47,19 +47,30 @@ absente du runner CI par construction, voir
 en place : il suit les `include` comme le ferait Nginx lui-même, donc a
 besoin de la même reconstitution que `nginx -t`.
 
-### SAST : `p/security-audit` + `p/bash`, pas `--config auto`
+### SAST : `p/security-audit` + `r/bash`, pas `--config auto`
 
 Semgrep propose `--config auto`, qui choisit des règles selon le contenu
 détecté du dépôt — mais suppose un compte Semgrep (connexion à leur
 plateforme pour récupérer la configuration). `p/security-audit` et
-`p/bash` sont des rulesets publics du
-[Semgrep Registry](https://semgrep.dev/explore), utilisables sans aucune
-authentification : `p/security-audit` couvre des patterns génériques
-(injection, crypto faible, gestion d'erreurs dangereuse), `p/bash` cible
-spécifiquement les scripts shell — la majorité du code de ce dépôt
-([`scripts/`](../scripts/)). `--error` fait échouer le job dès qu'un
-résultat est trouvé : une CI de sécurité qui ne bloque jamais rien n'est
-qu'un tableau de bord, pas une porte.
+`r/bash` sont utilisables sans aucune authentification :
+`p/security-audit` couvre des patterns génériques (injection, crypto
+faible, gestion d'erreurs dangereuse), `r/bash` couvre spécifiquement les
+scripts shell — la majorité du code de ce dépôt ([`scripts/`](../scripts/)).
+`--error` fait échouer le job dès qu'un résultat est trouvé : une CI de
+sécurité qui ne bloque jamais rien n'est qu'un tableau de bord, pas une
+porte.
+
+**Bug réel au premier run** : `--config p/bash` a échoué avec
+`Failed to download configuration ... HTTP 404` — ce pack n'existe pas
+dans le [Semgrep Registry](https://semgrep.dev/explore). Deux préfixes
+existent et ne sont pas interchangeables : `p/<nom>` référence un
+*pack* curé (une sélection éditorialisée, ex. `p/security-audit`),
+`r/<langage>` référence *toutes* les règles publiées pour un langage
+donné, sans curation éditoriale. Il n'existe pas de pack curé pour bash,
+seulement la collection complète par langage — d'où `r/bash` plutôt que
+`p/bash`. Vérifié directement via `curl -sL -o /dev/null -w '%{http_code}'
+https://semgrep.dev/c/<config>` avant de corriger, plutôt que de deviner
+un autre nom au hasard.
 
 ### Secrets scan : gitleaks en CI, en plus du secret scanning natif GitHub
 
@@ -73,6 +84,16 @@ personnalisables, sur chaque push/PR — complémentaire, pas un doublon,
 du scanning continu de GitHub. Voir
 [`Notes/devsecops/secrets-scanning.md`](../Notes/devsecops/secrets-scanning.md)
 pour le détail de cette complémentarité.
+
+**Bug réel rencontré au premier run** : le job a échoué immédiatement sur
+l'événement `pull_request` avec `GITHUB_TOKEN is now required to scan
+pull requests` — `gitleaks-action` (depuis sa v2) appelle l'API GitHub
+pour récupérer le diff exact de la PR, et a donc besoin du token
+automatique du workflow, jamais fourni par défaut. Corrigé en passant
+`env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` explicitement à l'étape
+— `secrets.GITHUB_TOKEN` est généré automatiquement par GitHub pour
+chaque run (pas un secret à créer soi-même), simplement pas injecté dans
+l'environnement d'une action tierce sans le déclarer.
 
 ### Artefacts de build contrôlés
 
