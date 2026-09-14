@@ -82,6 +82,39 @@ déconseillent ces règles, qui poussent surtout vers des mots de passe
 prévisibles (`Password1!`) sans gain de sécurité réel — détail dans la
 note ci-dessus.
 
+**Bug réel : dépendance transitive vulnérable, corrigé par montée de
+version, pas contournement.** `npm audit` a signalé `tar` (critique) via
+`bcrypt@5.1.1` → `@mapbox/node-pre-gyp` (outil qui télécharge/compile le
+binaire natif de `bcrypt` **à l'installation** — jamais exécuté par l'app
+en marche). `npm audit fix` n'a rien pu faire : `node-pre-gyp` fige une
+plage de `tar` trop ancienne pour qu'un correctif non cassant existe dans
+cet arbre de dépendances. Plutôt que forcer une résolution
+(`npm audit fix --force`, qui aurait pu imposer une version de `bcrypt`
+incompatible sans contrôle), vérifié que `bcrypt@6.0.0` a **supprimé**
+`node-pre-gyp` (donc `tar`) au profit de binaires précompilés livrés
+directement dans le paquet (`prebuildify`) — changelog confirmé sans
+changement d'API (`hash`/`compare` identiques), seule exigence
+`Node.js >= 16` (largement couvert par la Node 24 LTS de ce lab). Une
+vraie suppression de la dépendance vulnérable, pas un contournement.
+
+Confirmé après montée de version :
+
+```text
+$ npm install
+added 1 package, removed 57 packages, changed 2 packages
+found 0 vulnerabilities
+$ npm audit
+found 0 vulnerabilities
+$ npm start
+backend listening on 127.0.0.1:3000
+```
+
+57 paquets supprimés d'un coup (toute la chaîne
+`node-pre-gyp`/`tar`/`rimraf`/`glob` ancien) pour 1 seul ajouté
+(`node-gyp-build`) — confirme que ce n'était pas juste `tar` qui était
+disproportionné dans l'arbre de dépendances, mais tout un outillage de
+compilation devenu inutile.
+
 ### Sessions côté serveur (PostgreSQL), pas de JWT
 
 `express-session` + `connect-pg-simple` : l'état de session vit en base
@@ -283,4 +316,51 @@ promotion affichée avec `role | admin`, `200` avec `role":"admin"`
 (login), `{"pong":true,"role":"admin"}` (admin/ping après), `204`
 (logout), `401` (me après logout).
 
-*(sortie réelle à ajouter ici après exécution)*
+Exécuté (deux comptes de test, `test@example.com` promu admin et
+`test2@example.com` resté simple utilisateur pour vérifier le refus RBAC
+sans avoir à démonter la session admin en cours) :
+
+```text
+$ curl .../auth/register   {email: test@example.com}
+{"id":"1","email":"test@example.com","role":"user"}
+
+$ curl .../auth/me
+{"id":"1","role":"user"}
+
+$ ./scripts/promote-admin.sh test@example.com
+UPDATE 1
+ id |      email       | role
+----+------------------+-------
+  1 | test@example.com | admin
+
+$ curl .../auth/login   {email: test@example.com}
+{"id":"1","email":"test@example.com","role":"admin"}
+
+$ curl .../admin/ping
+{"pong":true,"role":"admin"}
+
+$ curl -X POST .../auth/logout
+204
+
+$ curl .../auth/me
+401
+
+# Second compte, resté "user", pour vérifier le refus RBAC :
+$ curl .../auth/register   {email: test2@example.com}
+{"id":"2","email":"test2@example.com","role":"user"}
+
+$ curl .../admin/ping
+403
+```
+
+**Flux complet confirmé** : inscription auto-connectée, session
+persistante à travers Nginx, refus RBAC (`403`) pour un rôle
+insuffisant, acceptation (`200`) après promotion et reconnexion,
+déconnexion effective (`401` sur `/me` ensuite).
+
+Détail à noter, pas un bug : `"id":"1"` est une **chaîne**, pas un
+nombre — le driver `pg` sérialise les colonnes `BIGINT`/`BIGSERIAL` en
+`string` par défaut (un nombre JavaScript ne représente pas exactement
+tous les entiers 64 bits) plutôt qu'en `number`, qui perdrait
+silencieusement de la précision au-delà de 2^53. Comportement voulu du
+driver, à garder en tête côté client de l'API plutôt qu'à "corriger".
