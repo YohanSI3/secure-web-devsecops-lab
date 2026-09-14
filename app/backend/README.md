@@ -55,6 +55,18 @@ commande au-delà de ce script.
 préparation directe de la Phase 4 (`.env.example` sans secrets réels,
 déjà dans le `ToDo.md`).
 
+**Bug réel au premier essai** : `GET /health` répondait
+`{"status":"ok","db":"unreachable"}`. Cause : le mot de passe généré par
+`openssl rand -base64 24` contenait un `/` — caractère réservé dans une
+URI (`postgresql://user:PASSWORD@host/db`, où `/` sépare normalement
+l'hôte du nom de la base). Sans percent-encoding, le parseur d'URL du
+driver `pg` interprète ce `/` comme un séparateur structurel plutôt que
+comme faisant partie du mot de passe, et tronque ce dernier au mauvais
+endroit — échec d'authentification silencieux côté driver, remonté ici
+comme `db: unreachable` sans détail. Corrigé en générant le mot de passe
+en hexadécimal (`openssl rand -hex 24`, alphabet `[0-9a-f]` uniquement,
+jamais ambigu dans une URI) plutôt qu'en base64.
+
 ## Nginx : `/api/` en reverse proxy
 
 [`nginx/snippets/api-proxy.conf`](../../nginx/snippets/api-proxy.conf),
@@ -90,4 +102,14 @@ curl -sk --resolve dev.secure-web-lab.local:8443:127.0.0.1 \
 
 Attendu dans les deux cas : `{"status":"ok","db":"ok"}`.
 
-*(sortie réelle à ajouter ici après exécution)*
+Exécuté (accès direct, après correctif du mot de passe ci-dessus) :
+
+```text
+$ curl -s http://127.0.0.1:3000/health
+{"status":"ok","db":"ok"}
+```
+
+Backend confirmé fonctionnel et connecté à PostgreSQL. Passage à travers
+Nginx (`/api/health`) à vérifier ensuite — nécessite d'abord de
+redéployer la config `dev`
+(`./scripts/deploy-nginx-config.sh dev`).

@@ -29,7 +29,11 @@ if [[ "$ROLE_EXISTS" == "1" ]]; then
     exit 1
   fi
 else
-  APP_PASSWORD="$(openssl rand -base64 24)"
+  # hex, pas base64 : base64 peut produire '/', '+', '=', des caractères
+  # réservés dans une URI (postgresql://user:PASSWORD@host/db) qui
+  # casseraient le parsing de l'URL par le driver `pg` sans percent-encoding
+  # -- hex ne contient que [0-9a-f], jamais ambigu dans une URI.
+  APP_PASSWORD="$(openssl rand -hex 24)"
   sudo -u postgres psql -c "CREATE ROLE ${APP_ROLE} LOGIN PASSWORD '${APP_PASSWORD}';"
   sudo -u postgres psql -c "CREATE DATABASE ${APP_DB} OWNER ${APP_ROLE};"
 
