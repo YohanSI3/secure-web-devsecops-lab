@@ -231,14 +231,34 @@ Pas de fichier à committer — réglage du dépôt GitHub, à faire dans
 
 ## Réglages de sécurité natifs GitHub (Settings > Code security)
 
-Gratuits sur un dépôt public, sans configuration par fichier :
+Gratuits sur un dépôt public, sans fichier à committer. L'intitulé exact
+de l'UI a changé depuis l'écriture de cette section (regroupé sous
+« Advanced Security ») — activés :
 
-- **Secret scanning** — Enable.
-- **Push protection** — Enable (bloque un push contenant un secret d'un
-  pattern reconnu, avant même qu'il n'atteigne l'historique — la seule
-  protection de ce document qui agit *avant* que le problème n'existe
-  dans le dépôt plutôt que de le détecter après coup).
-- **Dependabot alerts** — Enable.
-- **Dependabot security updates** — Enable (ouvre automatiquement une PR
-  de correctif quand une vulnérabilité connue est trouvée dans une
-  dépendance surveillée).
+- **Private vulnerability reporting** — nécessaire pour que le lien
+  `.../security/advisories/new` cité dans [`SECURITY.md`](../SECURITY.md)
+  fonctionne réellement.
+- **Dependency graph** — prérequis technique de Dependabot.
+- **Dependabot alerts**, **Dependabot security updates**,
+  **Grouped security updates** (regroupe les PR de sécurité par
+  gestionnaire de paquets plutôt qu'une par dépendance), **Dependabot
+  version updates** (pilote l'exécution effective de
+  [`dependabot.yml`](dependabot.yml)).
+- **Push protection** (sous *Secret Protection*) — bloque un push
+  contenant un secret d'un pattern reconnu, avant même qu'il n'atteigne
+  l'historique — la seule protection de ce document qui agit *avant* que
+  le problème n'existe dans le dépôt plutôt que de le détecter après
+  coup. Le scan de base (alertes aux partenaires pour un secret détecté)
+  est déjà actif par défaut sur un dépôt public, sans toggle séparé.
+
+**Délibérément pas activé : CodeQL analysis** (sous *Code scanning*).
+CodeQL — le SAST natif de GitHub, gratuit sur dépôt public — n'analyse
+que des langages applicatifs (JavaScript, Python, Java, Go, C/C++, C#,
+Ruby, Swift). Ce dépôt ne contient aucun de ces langages (bash, config
+Nginx, Markdown) : l'activer aujourd'hui n'analyserait rien d'utile.
+Semgrep OSS ([`sast.yml`](workflows/sast.yml)) reste le SAST pertinent
+tant que ça n'a pas changé — CodeQL redevient pertinent le jour où une
+stack applicative dans un langage supporté est ajoutée (voir
+[`Notes/devsecops/paysage-outillage.md`](../Notes/devsecops/paysage-outillage.md)).
+`Copilot Autofix` et `AI findings` dépendent tous deux de CodeQL, donc
+sans effet tant qu'il reste désactivé.

@@ -12,6 +12,7 @@ fait "en vrai" — à explorer par soi-même plutôt qu'à intégrer ici.
 | Catégorie | Implémenté dans ce lab | Référence(s) commerciale(s) à connaître |
 |---|---|---|
 | SAST | [Semgrep OSS](https://semgrep.dev) (rulesets publics) | Semgrep Code (offre payante, règles propriétaires + gestion centralisée), Snyk Code, Checkmarx, Veracode |
+| SAST (natif GitHub) | *non activé ici* — [CodeQL](https://codeql.github.com) est gratuit sur dépôt public, mais ne couvre que des langages applicatifs (JS, Python, Java, Go, C/C++, C#, Ruby, Swift) : rien de tel dans ce dépôt (bash/config/Markdown) pour l'instant | GitHub Advanced Security (CodeQL + secret scanning avancé, payant sur dépôt **privé**) |
 | Secrets scanning | [gitleaks](https://github.com/gitleaks/gitleaks) + push protection GitHub (native, gratuite sur dépôt public) | GitGuardian (détection + gestion d'incidents, surveillance au-delà de GitHub), Push protection GitHub sur dépôt **privé** (payant via GitHub Advanced Security) |
 | SCA (dépendances) | [Dependabot](https://docs.github.com/en/code-security/dependabot) (natif GitHub, gratuit) | Snyk Open Source, Mend (ex-WhiteSource), JFrog Xray |
 | Lint config Nginx | [gixy](https://github.com/yandex/gixy) | — (pas d'équivalent commercial dédié notable ; ce segment reste surtout open source) |
