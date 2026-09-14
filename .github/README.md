@@ -95,6 +95,30 @@ automatique du workflow, jamais fourni par défaut. Corrigé en passant
 chaque run (pas un secret à créer soi-même), simplement pas injecté dans
 l'environnement d'une action tierce sans le déclarer.
 
+### Découverte urgente en cours de route : dépréciation Node 20
+
+Une pull request automatique de Dependabot proposant de passer
+`gitleaks/gitleaks-action` en v3 a alerté sur un sujet plus large que ce
+seul paquet : **GitHub retire Node 20 des runners hébergés le 16
+septembre 2026**. Toute action encore basée sur Node 20 —
+`actions/checkout@v4`, `actions/upload-artifact@v4`, et
+`gitleaks-action@v2`, utilisées dans les quatre workflows de ce dépôt —
+cesse alors de fonctionner, indépendamment de tout bug de configuration.
+Mis à jour partout par anticipation plutôt que d'attendre l'échéance :
+
+- `actions/checkout@v4` → `@v7` (les 4 workflows)
+- `actions/upload-artifact@v4` → `@v7` ([`build-artifact.yml`](workflows/build-artifact.yml))
+- `gitleaks/gitleaks-action@v2` → `@v3` ([`secrets-scan.yml`](workflows/secrets-scan.yml)) —
+  aucun changement d'entrées/comportement selon le guide de migration du
+  projet, seulement le runtime Node ; `GITHUB_TOKEN` reste requis en v3
+  comme en v2, ce correctif-ci restait donc nécessaire indépendamment de
+  la version.
+
+Repéré en vérifiant directement les releases (`GET /repos/<owner>/<repo>/releases/latest`
+sur `actions/checkout`, `actions/upload-artifact`) et le
+[guide de migration de gitleaks-action](https://github.com/gitleaks/gitleaks-action#migrating-from-v2-to-v3)
+plutôt qu'en supposant un numéro de version au hasard.
+
 ### Artefacts de build contrôlés
 
 `build-artifact.yml` empaquette [`app/static-site/`](../app/static-site/)
