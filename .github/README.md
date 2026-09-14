@@ -199,8 +199,13 @@ semgrep   succeeded in 30s
 ```
 
 `build-artifact.yml` ne se déclenche que sur push vers `main` (pas sur
-PR, volontairement — voir la table plus haut) : sa première exécution
-réelle aura lieu au merge de cette PR.
+PR, volontairement — voir la table plus haut) : confirmé fonctionnel
+juste après le merge de cette PR (`build succeeded in 6s`), artefact
+`static-site-<sha>.tar.gz` + checksum produits sans intervention
+manuelle.
+
+**Les 4 workflows du pipeline sont donc vérifiés de bout en bout, en
+conditions réelles, pas seulement relus.**
 
 ## Branches protégées
 
