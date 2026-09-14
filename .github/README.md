@@ -18,7 +18,7 @@ ce lab.
 | Workflow | Déclencheur | Ce qu'il fait |
 |---|---|---|
 | [`nginx-lint.yml`](workflows/nginx-lint.yml) | push/PR sur `main` | `nginx -t` + [gixy](https://github.com/yandex/gixy) sur la config assemblée |
-| [`sast.yml`](workflows/sast.yml) | push/PR sur `main` | [Semgrep OSS](https://semgrep.dev) (`p/security-audit` + `r/bash`) |
+| [`sast.yml`](workflows/sast.yml) | push/PR sur `main` | [Semgrep OSS](https://semgrep.dev) (`p/security-audit` + `r/bash` + `p/nodejsscan` + `p/expressjs`) |
 | [`secrets-scan.yml`](workflows/secrets-scan.yml) | push/PR sur `main` | [gitleaks](https://github.com/gitleaks/gitleaks) sur tout l'historique |
 | [`build-artifact.yml`](workflows/build-artifact.yml) | push sur `main` | package + checksum du site statique |
 
@@ -47,17 +47,18 @@ absente du runner CI par construction, voir
 en place : il suit les `include` comme le ferait Nginx lui-même, donc a
 besoin de la même reconstitution que `nginx -t`.
 
-### SAST : `p/security-audit` + `r/bash`, pas `--config auto`
+### SAST : quatre rulesets ciblés, pas `--config auto`
 
 Semgrep propose `--config auto`, qui choisit des règles selon le contenu
 détecté du dépôt — mais suppose un compte Semgrep (connexion à leur
-plateforme pour récupérer la configuration). `p/security-audit` et
-`r/bash` sont utilisables sans aucune authentification :
-`p/security-audit` couvre des patterns génériques (injection, crypto
-faible, gestion d'erreurs dangereuse), `r/bash` couvre spécifiquement les
-scripts shell — la majorité du code de ce dépôt ([`scripts/`](../scripts/)).
-`--error` fait échouer le job dès qu'un résultat est trouvé : une CI de
-sécurité qui ne bloque jamais rien n'est qu'un tableau de bord, pas une
+plateforme pour récupérer la configuration). Les quatre rulesets retenus
+sont utilisables sans aucune authentification : `p/security-audit`
+(patterns génériques : injection, crypto faible, gestion d'erreurs
+dangereuse), `r/bash` (scripts shell, [`scripts/`](../scripts/)),
+`p/nodejsscan` et `p/expressjs` (règles dédiées au backend Node.js/Express
+de la Phase 5, IAM — [`app/backend/`](../app/backend/)). `--error` fait
+échouer le job dès qu'un résultat est trouvé : une CI de sécurité qui ne
+bloque jamais rien n'est qu'un tableau de bord, pas une
 porte.
 
 **Bug réel au premier run** : `--config p/bash` a échoué avec
@@ -110,6 +111,61 @@ qu'aux fichiers de configuration, pas à la documentation). Plus robuste
 qu'une suppression dont le mécanisme s'est révélé peu fiable ici : la
 CI ne dépend plus de la reconnaissance d'une annotation, seulement de
 l'absence du motif recherché.
+
+**Premier scan sur du vrai JS (`p/nodejsscan` + `p/expressjs`, 218
+règles, 114 fichiers) : 12 findings, triés un par un plutôt qu'une
+suppression en bloc.**
+
+- **6 `good_helmet_checks`** (`helmet_header_dns_prefetch`, `_hsts`,
+  `_ienoopen`, `_nosniff`, `_x_powered_by`, `_xss_filter`) —
+  contre-intuitif : ce sont des règles qui **confirment** qu'un en-tête
+  est bien présent (le nom du rule-id le dit : "good"), pas des
+  détections de problème. njsscan les classe en sévérité bloquante par
+  cohérence avec le reste du pack, sans distinguer "positif" de
+  "négatif" au niveau du `--error` de Semgrep.
+- **5 réglages de cookie de session non explicites** (`domain`, `path`
+  ×2 pack, `expires`) — décision au cas par cas plutôt qu'une suppression
+  globale : `path` **corrigé** (`path: '/'` ajouté explicitement, sans
+  changement de comportement réel puisque `/` était déjà la valeur par
+  défaut) ; `domain` **volontairement laissé absent** (la portée la plus
+  étroite possible pour un cookie de session — envoyé uniquement à
+  l'hôte exact — est le comportement voulu ici, le fixer explicitement
+  *élargirait* la portée plutôt que de la resserrer) ; `expires`
+  **volontairement remplacé par `maxAge`** (la documentation
+  d'`express-session` recommande elle-même `maxAge`, une durée relative
+  recalculée à chaque envoi, plutôt que `expires`, une date absolue plus
+  simple à mal régler en oubliant de la renouveler).
+
+**`nosemgrep` : deux échecs de suite pour deux raisons différentes,
+avant un placement correct.** Les 9 findings ci-dessus (`domain` et
+`expires`, volontaires, plus les 6 `good_helmet_checks`) ont d'abord été
+« supprimés » via `# nosemgrep: <rule-id>` — sans effet au run suivant,
+un deuxième échec après celui déjà rencontré sur
+`generic.nginx.security.*` (voir plus haut), mais pour une **raison
+différente** cette fois : la syntaxe officielle exige que l'annotation
+soit *"at the first line or preceding line of the pattern match"* —
+**immédiatement** précédente, pas seulement quelque part au-dessus. Le
+premier essai plaçait `nosemgrep` en première ligne d'un bloc de
+commentaire explicatif de plusieurs lignes, avec le texte de
+justification *entre* l'annotation et le code réel — une lecture trop
+littérale de "avant le code" plutôt que "la ligne juste avant". Corrigé
+en inversant l'ordre (justification d'abord, `nosemgrep` en dernière
+ligne de commentaire, collée au code) dans
+[`app/backend/src/index.js`](../app/backend/src/index.js). Lié au point
+noté plus haut sur `generic.*` (le moteur derrière la règle importe pour
+la fiabilité de `nosemgrep`), mais distinct : cette fois le moteur était
+le bon (vrai parseur JS), l'erreur était uniquement de placement —
+*deux catégories d'échec différentes, à ne pas confondre* : l'une tient
+au moteur de la règle, l'autre à une lecture trop relâchée de "ligne
+précédente".
+- **1 `curl-pipe-bash`** dans
+  [`scripts/install-nodejs.sh`](../scripts/install-nodejs.sh) — légitime,
+  pas de faux positif ici. Corrigé en séparant le téléchargement de
+  l'exécution (`curl -o fichier` puis `bash fichier`, plutôt qu'un pipe
+  direct) : ne change pas le modèle de confiance de fond (NodeSource
+  reste la source, toujours en HTTPS), mais supprime l'exécution en flux
+  continu que la règle ciblait précisément, et redevient inspectable
+  entre les deux étapes.
 
 ### Secrets scan : gitleaks en CI, en plus du secret scanning natif GitHub
 

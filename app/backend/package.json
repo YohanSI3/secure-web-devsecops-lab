@@ -1,0 +1,19 @@
+{
+  "name": "secure-web-lab-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend IAM (Phase 5) du lab secure-web-devsecops-lab",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "connect-pg-simple": "^9.0.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-session": "^1.18.0",
+    "helmet": "^7.1.0",
+    "pg": "^8.11.5"
+  }
+}

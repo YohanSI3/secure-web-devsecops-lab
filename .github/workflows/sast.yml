@@ -16,10 +16,10 @@ jobs:
 
       # Rulesets publics du Semgrep Registry, aucune authentification
       # requise (contrairement à `--config auto`, qui suppose un compte
-      # Semgrep). p/security-audit couvre des règles génériques
-      # (injection, crypto faible, etc.) ; r/bash cible spécifiquement les
-      # scripts shell, la majorité du code de ce dépôt -- préfixe `r/`
-      # (toutes les règles d'un langage), pas `p/` (pack curé) : `p/bash`
-      # n'existe pas dans le Registry (404), seul `r/bash` le fait.
+      # Semgrep). p/security-audit : règles génériques (injection, crypto
+      # faible, etc.). r/bash : scripts shell (préfixe r/ = toutes les
+      # règles d'un langage, pas de pack curé pour bash -- voir plus bas).
+      # p/nodejsscan / p/expressjs : règles dédiées Node.js/Express, le
+      # backend applicatif de la Phase 5 (IAM).
       - name: Semgrep scan
-        run: semgrep scan --config p/security-audit --config r/bash --error
+        run: semgrep scan --config p/security-audit --config r/bash --config p/nodejsscan --config p/expressjs --error
