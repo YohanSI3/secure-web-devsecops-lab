@@ -1,12 +1,19 @@
 version: 2
 updates:
-  # Seule vraie surface de "dépendances" du dépôt à ce stade : les
-  # versions des actions GitHub référencées dans .github/workflows/
+  # Versions des actions GitHub référencées dans .github/workflows/
   # (@v4, etc.). Épinglées par tag plutôt que par SHA de commit -- Dependabot
   # ouvre une PR à chaque nouvelle version, donnant le contrôle humain
   # (revue + CI) sur chaque mise à jour plutôt qu'une dérive silencieuse.
   # Voir .github/README.md#dependabot pour la nuance tag vs SHA.
   - package-ecosystem: "github-actions"
     directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Dépendances npm du backend (Phase 5, IAM) -- première vraie surface
+  # SCA du dépôt avec un gestionnaire de paquets applicatif, voir
+  # Notes/devsecops/sast-dast-sca.md.
+  - package-ecosystem: "npm"
+    directory: "/app/backend"
     schedule:
       interval: "weekly"

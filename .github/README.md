@@ -18,7 +18,7 @@ ce lab.
 | Workflow | Déclencheur | Ce qu'il fait |
 |---|---|---|
 | [`nginx-lint.yml`](workflows/nginx-lint.yml) | push/PR sur `main` | `nginx -t` + [gixy](https://github.com/yandex/gixy) sur la config assemblée |
-| [`sast.yml`](workflows/sast.yml) | push/PR sur `main` | [Semgrep OSS](https://semgrep.dev) (`p/security-audit` + `r/bash`) |
+| [`sast.yml`](workflows/sast.yml) | push/PR sur `main` | [Semgrep OSS](https://semgrep.dev) (`p/security-audit` + `r/bash` + `p/nodejsscan` + `p/expressjs`) |
 | [`secrets-scan.yml`](workflows/secrets-scan.yml) | push/PR sur `main` | [gitleaks](https://github.com/gitleaks/gitleaks) sur tout l'historique |
 | [`build-artifact.yml`](workflows/build-artifact.yml) | push sur `main` | package + checksum du site statique |
 
@@ -47,17 +47,18 @@ absente du runner CI par construction, voir
 en place : il suit les `include` comme le ferait Nginx lui-même, donc a
 besoin de la même reconstitution que `nginx -t`.
 
-### SAST : `p/security-audit` + `r/bash`, pas `--config auto`
+### SAST : quatre rulesets ciblés, pas `--config auto`
 
 Semgrep propose `--config auto`, qui choisit des règles selon le contenu
 détecté du dépôt — mais suppose un compte Semgrep (connexion à leur
-plateforme pour récupérer la configuration). `p/security-audit` et
-`r/bash` sont utilisables sans aucune authentification :
-`p/security-audit` couvre des patterns génériques (injection, crypto
-faible, gestion d'erreurs dangereuse), `r/bash` couvre spécifiquement les
-scripts shell — la majorité du code de ce dépôt ([`scripts/`](../scripts/)).
-`--error` fait échouer le job dès qu'un résultat est trouvé : une CI de
-sécurité qui ne bloque jamais rien n'est qu'un tableau de bord, pas une
+plateforme pour récupérer la configuration). Les quatre rulesets retenus
+sont utilisables sans aucune authentification : `p/security-audit`
+(patterns génériques : injection, crypto faible, gestion d'erreurs
+dangereuse), `r/bash` (scripts shell, [`scripts/`](../scripts/)),
+`p/nodejsscan` et `p/expressjs` (règles dédiées au backend Node.js/Express
+de la Phase 5, IAM — [`app/backend/`](../app/backend/)). `--error` fait
+échouer le job dès qu'un résultat est trouvé : une CI de sécurité qui ne
+bloque jamais rien n'est qu'un tableau de bord, pas une
 porte.
 
 **Bug réel au premier run** : `--config p/bash` a échoué avec
