@@ -72,6 +72,27 @@ seulement la collection complète par langage — d'où `r/bash` plutôt que
 https://semgrep.dev/c/<config>` avant de corriger, plutôt que de deviner
 un autre nom au hasard.
 
+**Premier scan réel (`r/bash` + `p/security-audit`, 232 règles, 89
+fichiers) : 1 finding, faux positif.** `generic.nginx.security.insecure-ssl-version`
+s'est déclenché sur
+[`nginx/conf.d/security.conf`](conf.d/security.conf) — mais sur un
+**commentaire** qui *décrit* l'ancienne valeur stock
+`ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;` pour expliquer pourquoi
+elle est remplacée ailleurs (voir
+[`Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md`](../Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md)),
+pas sur une directive active — le vrai `ssl_protocols` du dépôt
+([`nginx/snippets/tls-hardening.conf`](snippets/tls-hardening.conf))
+restreint bien à TLSv1.2/1.3 seuls. Semgrep n'a pas de notion de
+"commentaire explicatif citant une valeur dangereuse pour la documenter" :
+il matche du texte, pas une intention.
+
+Supprimé via une annotation `# nosemgrep: <rule-id>` sur la ligne
+précédant le match (syntaxe officielle : *"at the first line or preceding
+line of the pattern match"*), avec un commentaire expliquant **pourquoi**
+c'est un faux positif juste au-dessus — jamais de suppression sans
+justification écrite à côté, sans quoi la CI de sécurité perd sa valeur
+au fil des suppressions accumulées sans trace.
+
 ### Secrets scan : gitleaks en CI, en plus du secret scanning natif GitHub
 
 Ce dépôt étant public, GitHub propose gratuitement son propre
