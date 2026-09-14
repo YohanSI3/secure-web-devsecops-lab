@@ -187,6 +187,21 @@ un compromis lisibilité/rigueur documenté, pas un oubli. Voir
 stricte (SHA-pinning) à connaître si ce compromis doit être resserré plus
 tard.
 
+## État vérifié
+
+Les 3 checks bloquants tournent tous au vert sur la première PR réelle
+(`feat/phase3-devsecops-ci`) après correctifs :
+
+```text
+gitleaks  succeeded in 7s
+lint      succeeded in 16s
+semgrep   succeeded in 30s
+```
+
+`build-artifact.yml` ne se déclenche que sur push vers `main` (pas sur
+PR, volontairement — voir la table plus haut) : sa première exécution
+réelle aura lieu au merge de cette PR.
+
 ## Branches protégées
 
 Pas de fichier à committer — réglage du dépôt GitHub, à faire dans
