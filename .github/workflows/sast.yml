@@ -1,0 +1,23 @@
+name: SAST (Semgrep)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rulesets publics du Semgrep Registry, aucune authentification
+      # requise (contrairement à `--config auto`, qui suppose un compte
+      # Semgrep). p/security-audit couvre des règles génériques
+      # (injection, crypto faible, etc.) ; p/bash cible spécifiquement les
+      # scripts shell, la majorité du code de ce dépôt.
+      - name: Semgrep scan
+        run: semgrep scan --config p/security-audit --config p/bash --error

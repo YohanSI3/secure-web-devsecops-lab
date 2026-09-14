@@ -1,0 +1,28 @@
+name: Build artifact
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Artefact versionné par SHA de commit (traçable jusqu'à la source
+      # exacte), checksummé (intégrité vérifiable), produit uniquement par
+      # la CI -- jamais construit ni uploadé à la main.
+      - name: Package static site
+        run: |
+          VERSION="$(git rev-parse --short HEAD)"
+          mkdir -p dist
+          tar -czf "dist/static-site-${VERSION}.tar.gz" -C app/static-site .
+          sha256sum "dist/static-site-${VERSION}.tar.gz" > "dist/static-site-${VERSION}.tar.gz.sha256"
+          cat "dist/static-site-${VERSION}.tar.gz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static-site
+          path: dist/
+          retention-days: 30
