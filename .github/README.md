@@ -86,12 +86,30 @@ restreint bien à TLSv1.2/1.3 seuls. Semgrep n'a pas de notion de
 "commentaire explicatif citant une valeur dangereuse pour la documenter" :
 il matche du texte, pas une intention.
 
-Supprimé via une annotation `# nosemgrep: <rule-id>` sur la ligne
-précédant le match (syntaxe officielle : *"at the first line or preceding
-line of the pattern match"*), avec un commentaire expliquant **pourquoi**
-c'est un faux positif juste au-dessus — jamais de suppression sans
-justification écrite à côté, sans quoi la CI de sécurité perd sa valeur
-au fil des suppressions accumulées sans trace.
+**Premier correctif tenté, insuffisant** : une annotation
+`# nosemgrep: <rule-id>` sur la ligne précédant le match (syntaxe
+officiellement documentée : *"at the first line or preceding line of the
+pattern match"*) n'a **pas** supprimé le finding au run suivant — le
+`rule-id` `generic.nginx.security.*` tourne sous le moteur **generic**
+de Semgrep (pattern-matching sur texte brut, sans analyse syntaxique du
+langage cible), qui ne reconnaît apparemment pas `#` comme introduisant
+un commentaire porteur d'une directive `nosemgrep` de la même façon qu'un
+langage réellement parsé. Constaté empiriquement (le finding réapparaît
+identique après le premier correctif), pas déduit de la documentation
+seule.
+
+**Correctif retenu** : reformuler le commentaire pour ne plus reproduire
+littéralement la syntaxe `ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;`
+qui déclenche la règle, en décrivant le même fait en prose (« l'ensemble
+hérité de protocoles TLS du paquet Ubuntu, incluant encore les deux
+versions dépréciées ») plutôt qu'en citant le texte exact d'une directive
+dangereuse. Le détail syntaxique complet reste disponible dans
+[`Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md`](../Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md)
+(fichier `.md`, hors du périmètre de cette règle — elle ne s'applique
+qu'aux fichiers de configuration, pas à la documentation). Plus robuste
+qu'une suppression dont le mécanisme s'est révélé peu fiable ici : la
+CI ne dépend plus de la reconnaissance d'une annotation, seulement de
+l'absence du motif recherché.
 
 ### Secrets scan : gitleaks en CI, en plus du secret scanning natif GitHub
 
