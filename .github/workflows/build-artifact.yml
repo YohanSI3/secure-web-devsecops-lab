@@ -8,7 +8,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Artefact versionné par SHA de commit (traçable jusqu'à la source
       # exacte), checksummé (intégrité vérifiable), produit uniquement par
