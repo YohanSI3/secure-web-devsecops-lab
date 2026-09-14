@@ -112,6 +112,56 @@ qu'une suppression dont le mécanisme s'est révélé peu fiable ici : la
 CI ne dépend plus de la reconnaissance d'une annotation, seulement de
 l'absence du motif recherché.
 
+**Premier scan sur du vrai JS (`p/nodejsscan` + `p/expressjs`, 218
+règles, 114 fichiers) : 12 findings, triés un par un plutôt qu'une
+suppression en bloc.**
+
+- **6 `good_helmet_checks`** (`helmet_header_dns_prefetch`, `_hsts`,
+  `_ienoopen`, `_nosniff`, `_x_powered_by`, `_xss_filter`) —
+  contre-intuitif : ce sont des règles qui **confirment** qu'un en-tête
+  est bien présent (le nom du rule-id le dit : "good"), pas des
+  détections de problème. njsscan les classe en sévérité bloquante par
+  cohérence avec le reste du pack, sans distinguer "positif" de
+  "négatif" au niveau du `--error` de Semgrep. Supprimées via
+  `# nosemgrep: <liste des 6 rule-id>` sur la ligne juste avant
+  `app.use(helmet())` dans
+  [`app/backend/src/index.js`](../app/backend/src/index.js) — et cette
+  fois `nosemgrep` **a fonctionné** (contrairement au cas
+  `generic.nginx.security.*` plus haut) : la différence tient au moteur
+  utilisé par la règle. Une règle `generic.*` fait du pattern-matching
+  texte brut sans notion de langage ; une règle sur du JS réel passe par
+  le vrai parseur JavaScript de Semgrep, qui reconnaît correctement `//`
+  comme un commentaire porteur d'une directive `nosemgrep` — la
+  fiabilité de `nosemgrep` dépend donc du moteur derrière la règle
+  spécifique déclenchée, pas d'un comportement uniforme de Semgrep.
+- **5 réglages de cookie de session non explicites** (`domain`, `path`
+  ×2 pack, `expires`) — décision au cas par cas plutôt qu'une suppression
+  globale :
+  - `path` **corrigé** (`path: '/'` ajouté explicitement) — n'était
+    qu'implicite avant, sans changement de comportement réel (`/` est
+    déjà la valeur par défaut), donc un vrai correctif sans risque.
+  - `domain` **volontairement laissé absent**, supprimé avec
+    justification : la portée la plus étroite possible pour un cookie de
+    session (envoyé uniquement à l'hôte exact) est le comportement
+    voulu ici — le fixer explicitement *élargirait* la portée plutôt que
+    de la resserrer, l'inverse de ce que la règle semble suggérer à
+    première lecture.
+  - `expires` **volontairement remplacé par `maxAge`**, supprimé avec
+    justification : la documentation d'`express-session` recommande
+    elle-même `maxAge` (durée relative, recalculée à chaque envoi) plutôt
+    que `expires` (date absolue, plus simple à mal régler en oubliant de
+    la renouveler) — suivre la règle littéralement aurait été suivre un
+    conseil générique à l'encontre de la recommandation spécifique de la
+    bibliothèque utilisée.
+- **1 `curl-pipe-bash`** dans
+  [`scripts/install-nodejs.sh`](../scripts/install-nodejs.sh) — légitime,
+  pas de faux positif ici. Corrigé en séparant le téléchargement de
+  l'exécution (`curl -o fichier` puis `bash fichier`, plutôt qu'un pipe
+  direct) : ne change pas le modèle de confiance de fond (NodeSource
+  reste la source, toujours en HTTPS), mais supprime l'exécution en flux
+  continu que la règle ciblait précisément, et redevient inspectable
+  entre les deux étapes.
+
 ### Secrets scan : gitleaks en CI, en plus du secret scanning natif GitHub
 
 Ce dépôt étant public, GitHub propose gratuitement son propre

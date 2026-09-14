@@ -11,7 +11,20 @@ set -euo pipefail
 
 NODE_MAJOR=24
 
-curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | sudo -E bash -
+# Téléchargement et exécution séparés (pas un `curl | bash` direct) :
+# repéré par le SAST (Semgrep, bash.curl.security.curl-pipe-bash) comme
+# schéma à risque -- un pipe direct exécute le flux au fur et à mesure
+# qu'il arrive, sans possibilité d'inspection ni de coupure nette entre
+# "ce qui a été reçu" et "ce qui s'exécute". Ça ne change pas le modèle de
+# confiance de fond (NodeSource reste la source, toujours en HTTPS, voir
+# Notes/nodejs/README.md) : aucune vérification cryptographique de
+# signature n'est faite pour autant, seule l'exécution en flux continu est
+# supprimée.
+SETUP_SCRIPT="$(mktemp)"
+curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o "$SETUP_SCRIPT"
+sudo -E bash "$SETUP_SCRIPT"
+rm -f "$SETUP_SCRIPT"
+
 sudo apt-get install -y nodejs
 
 # Empêche apt upgrade/dist-upgrade de faire dériver la version
