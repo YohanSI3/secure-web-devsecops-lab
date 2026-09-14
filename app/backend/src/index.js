@@ -24,20 +24,20 @@ if (!process.env.SESSION_SECRET) {
 // HTTP) et req.ip renverrait l'IP de Nginx, pas celle du client.
 app.set('trust proxy', 1);
 
+// Les 6 règles ci-dessous ("good_helmet_checks") confirment que helmet()
+// ajoute bien ces en-têtes -- pas des problèmes, mal classées "Blocking"
+// par le pack Semgrep. Voir app/backend/README.md#sast.
 // nosemgrep: ajinabraham.njsscan.good.good_helmet_checks.helmet_header_dns_prefetch,ajinabraham.njsscan.good.good_helmet_checks.helmet_header_hsts,ajinabraham.njsscan.good.good_helmet_checks.helmet_header_ienoopen,ajinabraham.njsscan.good.good_helmet_checks.helmet_header_nosniff,ajinabraham.njsscan.good.good_helmet_checks.helmet_header_x_powered_by,ajinabraham.njsscan.good.good_helmet_checks.helmet_header_xss_filter
-// Les 6 règles ci-dessus sont des confirmations positives ("good_helmet_checks")
-// que helmet() ajoute bien ces en-têtes -- pas des problèmes, mal classées
-// "Blocking" par le pack Semgrep. Voir app/backend/README.md#sast.
 app.use(helmet());
 app.use(express.json());
 
 const PgSession = pgSessionFactory(session);
-// nosemgrep: ajinabraham.njsscan.headers.header_cookie.cookie_session_no_domain,javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-domain,javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-expires
 // `domain` et `expires` volontairement absents : voir
 // app/backend/README.md#sast pour pourquoi (portée de cookie la plus
 // étroite possible, `maxAge` préféré à `expires`). `path` en revanche
 // fixé explicitement ci-dessous suite au même scan.
 app.use(
+  // nosemgrep: ajinabraham.njsscan.headers.header_cookie.cookie_session_no_domain,javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-domain,javascript.express.security.audit.express-cookie-settings.express-cookie-session-no-expires
   session({
     store: new PgSession({ pool, createTableIfMissing: true }),
     name: 'sid',

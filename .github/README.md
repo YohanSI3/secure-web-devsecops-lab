@@ -122,37 +122,42 @@ suppression en bloc.**
   est bien présent (le nom du rule-id le dit : "good"), pas des
   détections de problème. njsscan les classe en sévérité bloquante par
   cohérence avec le reste du pack, sans distinguer "positif" de
-  "négatif" au niveau du `--error` de Semgrep. Supprimées via
-  `# nosemgrep: <liste des 6 rule-id>` sur la ligne juste avant
-  `app.use(helmet())` dans
-  [`app/backend/src/index.js`](../app/backend/src/index.js) — et cette
-  fois `nosemgrep` **a fonctionné** (contrairement au cas
-  `generic.nginx.security.*` plus haut) : la différence tient au moteur
-  utilisé par la règle. Une règle `generic.*` fait du pattern-matching
-  texte brut sans notion de langage ; une règle sur du JS réel passe par
-  le vrai parseur JavaScript de Semgrep, qui reconnaît correctement `//`
-  comme un commentaire porteur d'une directive `nosemgrep` — la
-  fiabilité de `nosemgrep` dépend donc du moteur derrière la règle
-  spécifique déclenchée, pas d'un comportement uniforme de Semgrep.
+  "négatif" au niveau du `--error` de Semgrep.
 - **5 réglages de cookie de session non explicites** (`domain`, `path`
   ×2 pack, `expires`) — décision au cas par cas plutôt qu'une suppression
-  globale :
-  - `path` **corrigé** (`path: '/'` ajouté explicitement) — n'était
-    qu'implicite avant, sans changement de comportement réel (`/` est
-    déjà la valeur par défaut), donc un vrai correctif sans risque.
-  - `domain` **volontairement laissé absent**, supprimé avec
-    justification : la portée la plus étroite possible pour un cookie de
-    session (envoyé uniquement à l'hôte exact) est le comportement
-    voulu ici — le fixer explicitement *élargirait* la portée plutôt que
-    de la resserrer, l'inverse de ce que la règle semble suggérer à
-    première lecture.
-  - `expires` **volontairement remplacé par `maxAge`**, supprimé avec
-    justification : la documentation d'`express-session` recommande
-    elle-même `maxAge` (durée relative, recalculée à chaque envoi) plutôt
-    que `expires` (date absolue, plus simple à mal régler en oubliant de
-    la renouveler) — suivre la règle littéralement aurait été suivre un
-    conseil générique à l'encontre de la recommandation spécifique de la
-    bibliothèque utilisée.
+  globale : `path` **corrigé** (`path: '/'` ajouté explicitement, sans
+  changement de comportement réel puisque `/` était déjà la valeur par
+  défaut) ; `domain` **volontairement laissé absent** (la portée la plus
+  étroite possible pour un cookie de session — envoyé uniquement à
+  l'hôte exact — est le comportement voulu ici, le fixer explicitement
+  *élargirait* la portée plutôt que de la resserrer) ; `expires`
+  **volontairement remplacé par `maxAge`** (la documentation
+  d'`express-session` recommande elle-même `maxAge`, une durée relative
+  recalculée à chaque envoi, plutôt que `expires`, une date absolue plus
+  simple à mal régler en oubliant de la renouveler).
+
+**`nosemgrep` : deux échecs de suite pour deux raisons différentes,
+avant un placement correct.** Les 9 findings ci-dessus (`domain` et
+`expires`, volontaires, plus les 6 `good_helmet_checks`) ont d'abord été
+« supprimés » via `# nosemgrep: <rule-id>` — sans effet au run suivant,
+un deuxième échec après celui déjà rencontré sur
+`generic.nginx.security.*` (voir plus haut), mais pour une **raison
+différente** cette fois : la syntaxe officielle exige que l'annotation
+soit *"at the first line or preceding line of the pattern match"* —
+**immédiatement** précédente, pas seulement quelque part au-dessus. Le
+premier essai plaçait `nosemgrep` en première ligne d'un bloc de
+commentaire explicatif de plusieurs lignes, avec le texte de
+justification *entre* l'annotation et le code réel — une lecture trop
+littérale de "avant le code" plutôt que "la ligne juste avant". Corrigé
+en inversant l'ordre (justification d'abord, `nosemgrep` en dernière
+ligne de commentaire, collée au code) dans
+[`app/backend/src/index.js`](../app/backend/src/index.js). Lié au point
+noté plus haut sur `generic.*` (le moteur derrière la règle importe pour
+la fiabilité de `nosemgrep`), mais distinct : cette fois le moteur était
+le bon (vrai parseur JS), l'erreur était uniquement de placement —
+*deux catégories d'échec différentes, à ne pas confondre* : l'une tient
+au moteur de la règle, l'autre à une lecture trop relâchée de "ligne
+précédente".
 - **1 `curl-pipe-bash`** dans
   [`scripts/install-nodejs.sh`](../scripts/install-nodejs.sh) — légitime,
   pas de faux positif ici. Corrigé en séparant le téléchargement de
