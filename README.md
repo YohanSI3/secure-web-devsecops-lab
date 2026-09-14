@@ -27,6 +27,15 @@ rotation de logs) : [`nginx/README.md`](nginx/README.md), déployé via
 `deploy-nginx-config.sh`/`deploy-static-site.sh` pour chaque environnement
 (pas de script dédié, ce sont des ajustements de la config déjà en place).
 
+Backend applicatif (Phase 5, IAM — voir [`app/backend/README.md`](app/backend/README.md)) :
+
+```bash
+./scripts/install-nodejs.sh         # Node.js LTS (dépôt NodeSource)
+./scripts/install-postgresql.sh     # PostgreSQL (dépôt Ubuntu)
+./scripts/setup-postgres-db.sh      # rôle + base dédiés à l'application
+cd app/backend && npm install && npm start
+```
+
 ## Documentation
 
 - [`ToDo.md`](ToDo.md) — plan général, objectifs, phases du projet.
