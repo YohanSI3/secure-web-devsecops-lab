@@ -1,0 +1,53 @@
+name: Nginx lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nginx and gixy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx python3-pip
+          pip install --user gixy
+
+      # Reconstitue l'arborescence /etc/nginx attendue par nos fichiers,
+      # même logique que scripts/deploy-nginx-config.sh mais par copie
+      # (éphémère, pas de source à faire vivre après le job).
+      - name: Assemble config tree
+        run: |
+          sudo cp nginx/conf.d/*.conf /etc/nginx/conf.d/
+          sudo mkdir -p /etc/nginx/snippets
+          sudo cp nginx/snippets/*.conf /etc/nginx/snippets/
+          sudo cp nginx/sites-available/*.conf /etc/nginx/sites-available/
+          sudo rm -f /etc/nginx/sites-enabled/default
+          for f in nginx/sites-available/*.conf; do
+            name="$(basename "$f")"
+            sudo ln -sf "/etc/nginx/sites-available/$name" "/etc/nginx/sites-enabled/$name"
+          done
+
+      # nginx -t exige que les fichiers ssl_certificate/ssl_certificate_key
+      # existent réellement (pas seulement une vérification de syntaxe) --
+      # certificats jetables, jamais utilisés que par ce job.
+      - name: Generate throwaway TLS certs
+        run: |
+          for env in dev staging prod; do
+            sudo mkdir -p "/etc/nginx/ssl/$env"
+            sudo openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+              -keyout "/etc/nginx/ssl/$env/server.key" \
+              -out "/etc/nginx/ssl/$env/server.crt" \
+              -subj "/CN=ci-placeholder"
+          done
+
+      - name: nginx -t (syntaxe + validation sémantique)
+        run: sudo nginx -t
+
+      - name: gixy (analyse statique orientée sécurité)
+        run: "$HOME/.local/bin/gixy /etc/nginx/nginx.conf"
