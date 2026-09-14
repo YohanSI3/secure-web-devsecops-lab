@@ -18,7 +18,7 @@ ce lab.
 | Workflow | Déclencheur | Ce qu'il fait |
 |---|---|---|
 | [`nginx-lint.yml`](workflows/nginx-lint.yml) | push/PR sur `main` | `nginx -t` + [gixy](https://github.com/yandex/gixy) sur la config assemblée |
-| [`sast.yml`](workflows/sast.yml) | push/PR sur `main` | [Semgrep OSS](https://semgrep.dev) (`p/security-audit` + `p/bash`) |
+| [`sast.yml`](workflows/sast.yml) | push/PR sur `main` | [Semgrep OSS](https://semgrep.dev) (`p/security-audit` + `r/bash`) |
 | [`secrets-scan.yml`](workflows/secrets-scan.yml) | push/PR sur `main` | [gitleaks](https://github.com/gitleaks/gitleaks) sur tout l'historique |
 | [`build-artifact.yml`](workflows/build-artifact.yml) | push sur `main` | package + checksum du site statique |
 
@@ -47,19 +47,69 @@ absente du runner CI par construction, voir
 en place : il suit les `include` comme le ferait Nginx lui-même, donc a
 besoin de la même reconstitution que `nginx -t`.
 
-### SAST : `p/security-audit` + `p/bash`, pas `--config auto`
+### SAST : `p/security-audit` + `r/bash`, pas `--config auto`
 
 Semgrep propose `--config auto`, qui choisit des règles selon le contenu
 détecté du dépôt — mais suppose un compte Semgrep (connexion à leur
 plateforme pour récupérer la configuration). `p/security-audit` et
-`p/bash` sont des rulesets publics du
-[Semgrep Registry](https://semgrep.dev/explore), utilisables sans aucune
-authentification : `p/security-audit` couvre des patterns génériques
-(injection, crypto faible, gestion d'erreurs dangereuse), `p/bash` cible
-spécifiquement les scripts shell — la majorité du code de ce dépôt
-([`scripts/`](../scripts/)). `--error` fait échouer le job dès qu'un
-résultat est trouvé : une CI de sécurité qui ne bloque jamais rien n'est
-qu'un tableau de bord, pas une porte.
+`r/bash` sont utilisables sans aucune authentification :
+`p/security-audit` couvre des patterns génériques (injection, crypto
+faible, gestion d'erreurs dangereuse), `r/bash` couvre spécifiquement les
+scripts shell — la majorité du code de ce dépôt ([`scripts/`](../scripts/)).
+`--error` fait échouer le job dès qu'un résultat est trouvé : une CI de
+sécurité qui ne bloque jamais rien n'est qu'un tableau de bord, pas une
+porte.
+
+**Bug réel au premier run** : `--config p/bash` a échoué avec
+`Failed to download configuration ... HTTP 404` — ce pack n'existe pas
+dans le [Semgrep Registry](https://semgrep.dev/explore). Deux préfixes
+existent et ne sont pas interchangeables : `p/<nom>` référence un
+*pack* curé (une sélection éditorialisée, ex. `p/security-audit`),
+`r/<langage>` référence *toutes* les règles publiées pour un langage
+donné, sans curation éditoriale. Il n'existe pas de pack curé pour bash,
+seulement la collection complète par langage — d'où `r/bash` plutôt que
+`p/bash`. Vérifié directement via `curl -sL -o /dev/null -w '%{http_code}'
+https://semgrep.dev/c/<config>` avant de corriger, plutôt que de deviner
+un autre nom au hasard.
+
+**Premier scan réel (`r/bash` + `p/security-audit`, 232 règles, 89
+fichiers) : 1 finding, faux positif.** `generic.nginx.security.insecure-ssl-version`
+s'est déclenché sur
+[`nginx/conf.d/security.conf`](conf.d/security.conf) — mais sur un
+**commentaire** qui *décrit* l'ancienne valeur stock
+`ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;` pour expliquer pourquoi
+elle est remplacée ailleurs (voir
+[`Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md`](../Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md)),
+pas sur une directive active — le vrai `ssl_protocols` du dépôt
+([`nginx/snippets/tls-hardening.conf`](snippets/tls-hardening.conf))
+restreint bien à TLSv1.2/1.3 seuls. Semgrep n'a pas de notion de
+"commentaire explicatif citant une valeur dangereuse pour la documenter" :
+il matche du texte, pas une intention.
+
+**Premier correctif tenté, insuffisant** : une annotation
+`# nosemgrep: <rule-id>` sur la ligne précédant le match (syntaxe
+officiellement documentée : *"at the first line or preceding line of the
+pattern match"*) n'a **pas** supprimé le finding au run suivant — le
+`rule-id` `generic.nginx.security.*` tourne sous le moteur **generic**
+de Semgrep (pattern-matching sur texte brut, sans analyse syntaxique du
+langage cible), qui ne reconnaît apparemment pas `#` comme introduisant
+un commentaire porteur d'une directive `nosemgrep` de la même façon qu'un
+langage réellement parsé. Constaté empiriquement (le finding réapparaît
+identique après le premier correctif), pas déduit de la documentation
+seule.
+
+**Correctif retenu** : reformuler le commentaire pour ne plus reproduire
+littéralement la syntaxe `ssl_protocols TLSv1 TLSv1.1 TLSv1.2 TLSv1.3;`
+qui déclenche la règle, en décrivant le même fait en prose (« l'ensemble
+hérité de protocoles TLS du paquet Ubuntu, incluant encore les deux
+versions dépréciées ») plutôt qu'en citant le texte exact d'une directive
+dangereuse. Le détail syntaxique complet reste disponible dans
+[`Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md`](../Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md)
+(fichier `.md`, hors du périmètre de cette règle — elle ne s'applique
+qu'aux fichiers de configuration, pas à la documentation). Plus robuste
+qu'une suppression dont le mécanisme s'est révélé peu fiable ici : la
+CI ne dépend plus de la reconnaissance d'une annotation, seulement de
+l'absence du motif recherché.
 
 ### Secrets scan : gitleaks en CI, en plus du secret scanning natif GitHub
 
@@ -73,6 +123,40 @@ personnalisables, sur chaque push/PR — complémentaire, pas un doublon,
 du scanning continu de GitHub. Voir
 [`Notes/devsecops/secrets-scanning.md`](../Notes/devsecops/secrets-scanning.md)
 pour le détail de cette complémentarité.
+
+**Bug réel rencontré au premier run** : le job a échoué immédiatement sur
+l'événement `pull_request` avec `GITHUB_TOKEN is now required to scan
+pull requests` — `gitleaks-action` (depuis sa v2) appelle l'API GitHub
+pour récupérer le diff exact de la PR, et a donc besoin du token
+automatique du workflow, jamais fourni par défaut. Corrigé en passant
+`env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` explicitement à l'étape
+— `secrets.GITHUB_TOKEN` est généré automatiquement par GitHub pour
+chaque run (pas un secret à créer soi-même), simplement pas injecté dans
+l'environnement d'une action tierce sans le déclarer.
+
+### Découverte urgente en cours de route : dépréciation Node 20
+
+Une pull request automatique de Dependabot proposant de passer
+`gitleaks/gitleaks-action` en v3 a alerté sur un sujet plus large que ce
+seul paquet : **GitHub retire Node 20 des runners hébergés le 16
+septembre 2026**. Toute action encore basée sur Node 20 —
+`actions/checkout@v4`, `actions/upload-artifact@v4`, et
+`gitleaks-action@v2`, utilisées dans les quatre workflows de ce dépôt —
+cesse alors de fonctionner, indépendamment de tout bug de configuration.
+Mis à jour partout par anticipation plutôt que d'attendre l'échéance :
+
+- `actions/checkout@v4` → `@v7` (les 4 workflows)
+- `actions/upload-artifact@v4` → `@v7` ([`build-artifact.yml`](workflows/build-artifact.yml))
+- `gitleaks/gitleaks-action@v2` → `@v3` ([`secrets-scan.yml`](workflows/secrets-scan.yml)) —
+  aucun changement d'entrées/comportement selon le guide de migration du
+  projet, seulement le runtime Node ; `GITHUB_TOKEN` reste requis en v3
+  comme en v2, ce correctif-ci restait donc nécessaire indépendamment de
+  la version.
+
+Repéré en vérifiant directement les releases (`GET /repos/<owner>/<repo>/releases/latest`
+sur `actions/checkout`, `actions/upload-artifact`) et le
+[guide de migration de gitleaks-action](https://github.com/gitleaks/gitleaks-action#migrating-from-v2-to-v3)
+plutôt qu'en supposant un numéro de version au hasard.
 
 ### Artefacts de build contrôlés
 
