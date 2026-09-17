@@ -19,8 +19,9 @@ fait "en vrai" — à explorer par soi-même plutôt qu'à intégrer ici.
 | CI/CD | [GitHub Actions](https://github.com/features/actions) (gratuit, quotas généreux sur dépôt public) | GitLab CI Ultimate, CircleCI, Jenkins (auto-hébergé, gratuit mais coût d'exploitation) |
 | DAST | *non implémenté ici* (voir [`sast-dast-sca.md`](sast-dast-sca.md)) | OWASP ZAP (gratuit, référence open source), Burp Suite Enterprise, Invicti |
 | Gestion de secrets (au runtime, pas au scan) | *prévu Phase 4 du `ToDo.md`* | HashiCorp Vault (aussi disponible en open source, la version Enterprise est payante), AWS Secrets Manager, Azure Key Vault |
-| Observabilité / SIEM (Phase 5) | *non traité à ce stade* | Splunk, Datadog Security, Elastic Security (aussi open source à la base) |
+| Observabilité / SIEM (Phase 6) | *non traité à ce stade* | Splunk, Datadog Security, Elastic Security (aussi open source à la base) |
 | Scan IaC (si Docker/Terraform ajoutés) | *non applicable pour l'instant* | Checkov (gratuit), tfsec (gratuit), Snyk IaC, Prisma Cloud |
+| Envoi d'email transactionnel (reset de mot de passe, Phase 5 IAM) | [Mailpit](https://mailpit.axllent.org) — capteur SMTP local, ne délivre jamais un vrai email, utilisé ici pour tester le flux sans risque | SendGrid, Postmark, AWS SES, Mailgun — vrais fournisseurs qui délivrent réellement les emails, avec suivi de délivrabilité, réputation d'IP, DKIM/SPF/DMARC gérés |
 
 ## Une nuance à garder : "gratuit" et "open source" ne sont pas synonymes
 
