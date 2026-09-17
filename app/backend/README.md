@@ -7,13 +7,16 @@ PostgreSQL, voir [`Notes/nodejs/`](../../Notes/nodejs/README.md) et
 
 ## État actuel
 
-Socle (connexion DB, reverse proxy Nginx, healthcheck) vérifié en
-conditions réelles — voir la section Vérification plus bas. Routes
-d'authentification maintenant implémentées :
-[`src/routes/auth.js`](src/routes/auth.js) (`POST /auth/register`,
-`POST /auth/login`, `POST /auth/logout`, `GET /auth/me`) et
-[`src/routes/admin.js`](src/routes/admin.js) (`GET /admin/ping`, route de
-démonstration RBAC).
+Phase 5 (IAM) complète côté items obligatoires du `ToDo.md` : socle
+(connexion DB, reverse proxy Nginx, healthcheck), authentification
+([`src/routes/auth.js`](src/routes/auth.js) : `POST /auth/register`,
+`POST /auth/login`, `POST /auth/logout`, `GET /auth/me`,
+`POST /auth/forgot-password`, `POST /auth/reset-password`), RBAC
+([`src/routes/admin.js`](src/routes/admin.js), `GET /admin/ping`) —
+tous vérifiés en conditions réelles, voir Vérification plus bas. MFA
+volontairement laissé en évolution future (voir
+[`Notes/iam/README.md`](../../Notes/iam/README.md#mfa--pas-dans-cette-phase-évolution-possible)) :
+marqué "option" dans le `ToDo.md`, pas requis pour clore la phase.
 
 ## Pourquoi Express
 
@@ -206,31 +209,88 @@ connectée.
 ### Audit (`src/audit.js`)
 
 Chaque tentative de connexion (succès, échec, échec par verrouillage,
-email inconnu), inscription et déconnexion est journalisée dans
-`audit_log` (voir [`db/schema.sql`](db/schema.sql)) — `user_id` peut être
-`null` (email inconnu à la connexion) sans jamais bloquer l'écriture de
-la trace elle-même.
+email inconnu), inscription, déconnexion, et maintenant demande/succès de
+réinitialisation de mot de passe est journalisée dans `audit_log` (voir
+[`db/schema.sql`](db/schema.sql)) — `user_id` peut être `null` (email
+inconnu à la connexion) sans jamais bloquer l'écriture de la trace
+elle-même.
+
+### Réinitialisation de mot de passe (`forgot-password` / `reset-password`)
+
+Jeton à usage unique (`crypto.randomBytes(32)`, 256 bits), valable 30
+minutes, **haché en SHA-256** avant stockage dans
+`password_reset_tokens` (voir [`db/schema.sql`](db/schema.sql)) — pas en
+clair, même logique que les mots de passe, mais SHA-256 plutôt que bcrypt
+puisque le jeton est déjà de la haute entropie générée par machine, pas
+un secret à faible entropie choisi par un humain à protéger du
+brute-force. Détail complet dans
+[`Notes/iam/reinitialisation-mot-de-passe.md`](../../Notes/iam/reinitialisation-mot-de-passe.md).
+
+- **Même réponse générique** (`{"message":"if_account_exists_email_sent"}`,
+  toujours `200`) que l'email existe ou non — même résistance à
+  l'énumération que la connexion.
+- **Origine de l'URL reconstruite depuis la requête** (`req.protocol`
+  + `req.get('host')`), pas une valeur fixe en config : une seule
+  instance Node sert les trois environnements (dev/staging/prod) via
+  trois hôtes différents ; Nginx transmet déjà le bon `Host` et le bon
+  `X-Forwarded-Proto` (voir `trust proxy` plus haut), donc le lien de
+  reset pointe automatiquement vers le bon environnement sans code
+  spécifique à chacun.
+- **Coupe toutes les sessions actives du compte** au moment du reset
+  réussi (`DELETE FROM session WHERE sess->>'userId' = ...`) — un reset
+  suppose souvent un compte déjà compromis ; sans ça, une session ouverte
+  par un attaquant avec l'ancien mot de passe resterait valide après le
+  changement.
+- **Mailpit** comme serveur SMTP local ([`src/mail.js`](src/mail.js),
+  [`scripts/install-mailpit.sh`](../../scripts/install-mailpit.sh)) :
+  capture les emails sortants sans jamais les délivrer, pour tester tout
+  le flux (y compris cliquer un vrai lien reçu) sans dépendre d'un
+  fournisseur ni risquer d'envoyer un email réel. Service dédié, tourne
+  sous son propre utilisateur système (`mailpit`), lié à `127.0.0.1`
+  uniquement (SMTP **et** interface web) — jamais exposé via Nginx :
+  consulter les emails capturés se fait directement sur la machine
+  (`curl http://127.0.0.1:8025/...` ou un tunnel local), pas depuis le
+  site public. Voir
+  [`Notes/devsecops/paysage-outillage.md`](../../Notes/devsecops/paysage-outillage.md)
+  pour les vrais fournisseurs (payants) que Mailpit remplace ici.
+- **Pages statiques** [`app/static-site/forgot-password.html`](../static-site/forgot-password.html)
+  et [`reset-password.html`](../static-site/reset-password.html), avec
+  leur JS respectif dans des fichiers **externes**
+  (`forgot-password.js`/`reset-password.js`) — jamais en `<script>`
+  inline : la CSP de ce lab
+  ([`nginx/snippets/security-headers.conf`](../../nginx/snippets/security-headers.conf),
+  `default-src 'self'`) bloque tout script en ligne sans
+  `'unsafe-inline'`, jamais ajouté volontairement (même raison que le
+  CSS déjà externalisé sur `index.html` depuis la Phase 1).
 
 ## Nginx : `/api/` en reverse proxy
 
 [`nginx/snippets/api-proxy.conf`](../../nginx/snippets/api-proxy.conf),
-inclus pour l'instant uniquement dans le vhost `dev`
-([`nginx/sites-available/secure-web-lab-dev.conf`](../../nginx/sites-available/secure-web-lab-dev.conf)) —
-`staging`/`prod` suivront une fois ce socle vérifié. Le `location /api/`
-inclut aussi `snippets/rate-limiting.conf` : le rate limiting protège
-déjà l'API sans configuration supplémentaire (zone partagée avec le reste
-du site, voir [`nginx/README.md`](../../nginx/README.md#rate-limiting)).
-`/api/auth/login` a en plus sa propre zone, bien plus stricte
-(`snippets/rate-limiting-login.conf`, `location =` donc prioritaire sur
-le préfixe `/api/`) — voir la section Authentification ci-dessus.
+désormais inclus dans les **trois** vhosts (`dev`, `staging`, `prod` —
+initialement dev seul le temps de vérifier le socle, étendu maintenant
+que c'est fait). Une seule instance Node partagée par les trois, comme
+pour le site statique et le rate limiting (voir
+[`Notes/nginx/environnements/`](../../Notes/nginx/environnements/README.md)) —
+pas trois backends séparés. Le `location /api/` inclut aussi
+`snippets/rate-limiting.conf` : le rate limiting protège déjà l'API sans
+configuration supplémentaire (zone partagée avec le reste du site, voir
+[`nginx/README.md`](../../nginx/README.md#rate-limiting)).
+`/api/auth/login`, `/api/auth/forgot-password` et
+`/api/auth/reset-password` ont chacune leur propre `location =`
+pointant vers la zone bien plus stricte `snippets/rate-limiting-login.conf`
+(prioritaire sur le préfixe `/api/` pour ces trois routes précises) —
+les trois sont des cibles plausibles d'abus (brute-force de connexion,
+spam d'emails de reset, brute-force du jeton de reset), pas seulement la
+connexion.
 
 ## Lancer en local
 
 ```bash
 ./scripts/setup-postgres-db.sh   # si pas déjà fait
-./scripts/setup-db-schema.sh     # crée les tables users / audit_log
+./scripts/setup-db-schema.sh     # crée/met à jour les tables (users, audit_log, password_reset_tokens)
+./scripts/install-mailpit.sh     # si pas déjà fait -- capteur SMTP local
 cd app/backend
-npm install                      # installe bcrypt, express-session, connect-pg-simple
+npm install                      # installe bcrypt, express-session, connect-pg-simple, nodemailer
 npm start
 ```
 
@@ -364,3 +424,53 @@ nombre — le driver `pg` sérialise les colonnes `BIGINT`/`BIGSERIAL` en
 tous les entiers 64 bits) plutôt qu'en `number`, qui perdrait
 silencieusement de la précision au-delà de 2^53. Comportement voulu du
 driver, à garder en tête côté client de l'API plutôt qu'à "corriger".
+
+### Vérification de la réinitialisation de mot de passe
+
+Nouveau fichier `conf.d`-like côté Nginx (nouvelles `location =` dans les
+3 vhosts) : redéployer avant de tester.
+
+```bash
+./scripts/deploy-nginx-config.sh dev
+./scripts/deploy-nginx-config.sh staging
+./scripts/deploy-nginx-config.sh prod
+```
+
+```bash
+BASE="https://dev.secure-web-lab.local:8443"
+RESOLVE="--resolve dev.secure-web-lab.local:8443:127.0.0.1"
+
+# Déclenche l'email (compte test@example.com déjà créé plus haut)
+curl -sk $RESOLVE -H 'Content-Type: application/json' \
+  -d '{"email":"test@example.com"}' \
+  "$BASE/api/auth/forgot-password"
+
+# Lire l'email capturé par Mailpit (dernier message reçu)
+curl -s http://127.0.0.1:8025/api/v1/messages | grep -o '"ID":"[^"]*"' | head -1
+# puis, avec l'ID trouvé :
+curl -s "http://127.0.0.1:8025/api/v1/message/<ID>" | grep -o 'token=[a-f0-9]*'
+
+# Réinitialiser avec le jeton extrait de l'email
+curl -sk $RESOLVE -H 'Content-Type: application/json' \
+  -d '{"token":"<TOKEN>","password":"un-nouveau-mot-de-passe-suffisamment-long"}' \
+  "$BASE/api/auth/reset-password"
+
+# L'ancien mot de passe ne doit plus fonctionner
+curl -sk $RESOLVE -H 'Content-Type: application/json' \
+  -d '{"email":"test@example.com","password":"une-phrase-de-passe-suffisamment-longue"}' \
+  -o /dev/null -w "ancien mdp -> %{http_code}\n" \
+  "$BASE/api/auth/login"
+
+# Le nouveau doit fonctionner
+curl -sk $RESOLVE -H 'Content-Type: application/json' \
+  -d '{"email":"test@example.com","password":"un-nouveau-mot-de-passe-suffisamment-long"}' \
+  -o /dev/null -w "nouveau mdp -> %{http_code}\n" \
+  "$BASE/api/auth/login"
+```
+
+Attendu : `forgot-password` renvoie `{"message":"if_account_exists_email_sent"}`,
+un email apparaît dans Mailpit avec un lien contenant le jeton,
+`reset-password` renvoie `204`, l'ancien mot de passe échoue (`401`), le
+nouveau fonctionne (`200`).
+
+*(sortie réelle à ajouter ici après exécution)*

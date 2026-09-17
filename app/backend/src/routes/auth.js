@@ -1,7 +1,9 @@
+const crypto = require('crypto');
 const express = require('express');
 const bcrypt = require('bcrypt');
 const { pool } = require('../db');
 const { logAudit } = require('../audit');
+const { sendPasswordResetEmail } = require('../mail');
 
 const router = express.Router();
 
@@ -9,7 +11,18 @@ const BCRYPT_COST = 12;
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_MINUTES = 15;
 const MIN_PASSWORD_LENGTH = 10;
+const RESET_TOKEN_BYTES = 32;
+const RESET_TOKEN_TTL_MINUTES = 30;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// SHA-256, pas bcrypt : le jeton de reset est déjà 256 bits d'aléa
+// cryptographique (crypto.randomBytes), pas un secret choisi par un
+// humain à protéger contre le brute-force -- un hash rapide suffit pour
+// vérifier l'intégrité, la lenteur de bcrypt n'apporte rien ici et
+// coûterait un calcul inutile à chaque tentative de reset.
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 function isValidEmail(email) {
   return typeof email === 'string' && email.length <= 254 && EMAIL_RE.test(email);
@@ -163,5 +176,87 @@ router.get('/me', (req, res) => {
   }
   res.json({ id: req.session.userId, role: req.session.role });
 });
+
+router.post(
+  '/forgot-password',
+  asyncHandler(async (req, res) => {
+    const { email } = req.body || {};
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ error: 'invalid_input' });
+    }
+
+    const result = await pool.query('SELECT id FROM users WHERE email = $1', [
+      email.toLowerCase(),
+    ]);
+    const user = result.rows[0];
+
+    if (user) {
+      const rawToken = crypto.randomBytes(RESET_TOKEN_BYTES).toString('hex');
+      const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000);
+
+      await pool.query(
+        'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)',
+        [user.id, hashResetToken(rawToken), expiresAt]
+      );
+
+      // Origine reconstruite depuis la requête elle-même, pas une valeur
+      // fixe en config : une seule instance Node sert les 3 environnements
+      // (dev/staging/prod, voir nginx/README.md#rate-limiting) via des
+      // hôtes différents -- `req.get('host')` renvoie déjà le bon, transmis
+      // tel quel par Nginx (`proxy_set_header Host $host;`).
+      const resetUrl = `${req.protocol}://${req.get('host')}/reset-password.html?token=${rawToken}`;
+      await sendPasswordResetEmail(email, resetUrl);
+      await logAudit(user.id, 'password_reset_requested', req.ip);
+    }
+
+    // Même réponse que l'email existe ou non -- résistance à l'énumération
+    // de comptes, même principe qu'à la connexion (voir
+    // app/backend/README.md#résistance-à-lénumération-de-comptes).
+    res.json({ message: 'if_account_exists_email_sent' });
+  })
+);
+
+router.post(
+  '/reset-password',
+  asyncHandler(async (req, res) => {
+    const { token, password } = req.body || {};
+    if (typeof token !== 'string' || !isValidPassword(password)) {
+      return res.status(400).json({ error: 'invalid_input' });
+    }
+
+    const result = await pool.query(
+      `SELECT id, user_id FROM password_reset_tokens
+       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()`,
+      [hashResetToken(token)]
+    );
+    const resetRow = result.rows[0];
+
+    if (!resetRow) {
+      return res.status(400).json({ error: 'invalid_or_expired_token' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
+
+    await pool.query(
+      'UPDATE users SET password_hash = $1, failed_attempts = 0, locked_until = NULL WHERE id = $2',
+      [passwordHash, resetRow.user_id]
+    );
+    await pool.query('UPDATE password_reset_tokens SET used_at = now() WHERE id = $1', [
+      resetRow.id,
+    ]);
+
+    // Coupe toutes les sessions actives de ce compte : un reset de mot de
+    // passe doit invalider l'accès existant (cas d'usage typique : compte
+    // compromis, l'attaquant a peut-être déjà une session ouverte).
+    // connect-pg-simple stocke la session sous forme JSON dans `sess` --
+    // `userId` y est la même valeur que celle écrite dans req.session.userId
+    // (login/register), donc une chaîne (voir la note sur la sérialisation
+    // BIGINT du driver pg dans app/backend/README.md).
+    await pool.query(`DELETE FROM session WHERE sess->>'userId' = $1`, [resetRow.user_id]);
+
+    await logAudit(resetRow.user_id, 'password_reset_completed', req.ip);
+    res.status(204).end();
+  })
+);
 
 module.exports = router;
