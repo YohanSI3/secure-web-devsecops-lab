@@ -190,6 +190,22 @@ automatique du workflow, jamais fourni par défaut. Corrigé en passant
 chaque run (pas un secret à créer soi-même), simplement pas injecté dans
 l'environnement d'une action tierce sans le déclarer.
 
+**Vraie détection, pas un faux positif — outil qui fait exactement son
+travail** : `gitleaks` a bloqué une PR (Phase 5, correctif `proxy_pass`)
+en repérant un vrai jeton de réinitialisation de mot de passe
+(`generic-api-key`, entropie ~3.8) collé tel quel dans
+[`app/backend/README.md`](../app/backend/README.md) comme "sortie réelle"
+d'un test de vérification. Jeton à usage unique, déjà consommé par le
+`reset-password` qui suivait dans la même séquence de test, et lié à un
+compte `test@example.com` qui n'existe que dans l'environnement de
+développement local — donc sans risque exploitable réel. Corrigé en
+redactant la valeur (remplacée par un texte explicite plutôt que par le
+jeton), pas en supprimant ou en excluant la règle : committer une valeur
+qui a la forme d'un secret dans une documentation reste une mauvaise
+pratique à corriger, même quand le secret précis n'a plus de valeur
+d'exploitation — exactement le genre de réflexe que ce scanner est censé
+imposer.
+
 ### Découverte urgente en cours de route : dépréciation Node 20
 
 Une pull request automatique de Dependabot proposant de passer
