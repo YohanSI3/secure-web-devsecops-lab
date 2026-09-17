@@ -283,6 +283,35 @@ les trois sont des cibles plausibles d'abus (brute-force de connexion,
 spam d'emails de reset, brute-force du jeton de reset), pas seulement la
 connexion.
 
+**Bug réel, trouvé au premier test de bout en bout de la réinitialisation** :
+`POST /api/auth/forgot-password` renvoyait `Cannot POST /` (le 404 par
+défaut d'Express pour une route qu'il ne connaît pas), alors que la route
+`POST /auth/forgot-password` existe bien côté backend. Cause : les trois
+`location = /api/auth/...` incluaient `snippets/api-proxy.conf`, qui
+contient `proxy_pass http://127.0.0.1:3000/;` (URI finale avec `/`). Ce
+`proxy_pass` avec URI finale a un comportement de **substitution de
+préfixe** : nginx retire de l'URI entrante la portion couverte par la
+`location`, puis remplace par l'URI finale. Pour `location /api/`
+(préfixe), la portion couverte est bien le préfixe `/api/` : une requête
+sur `/api/health` devient `/health` côté backend — comportement voulu.
+Mais pour `location = /api/auth/login` (correspondance **exacte**), toute
+l'URI `/api/auth/login` est "la portion couverte" par la location — donc
+entièrement retirée et remplacée par `/`, peu importe la route réelle.
+Le backend recevait donc `POST /` sur les trois routes d'authentification
+sensibles, jamais `/auth/login` ni `/auth/forgot-password`.
+
+Corrigé en séparant les en-têtes communs
+([`nginx/snippets/api-proxy-headers.conf`](../../nginx/snippets/api-proxy-headers.conf),
+sans `proxy_pass`) du `proxy_pass` lui-même : `api-proxy.conf` garde
+`proxy_pass http://127.0.0.1:3000/;` pour le préfixe `/api/`, et chacune
+des trois `location =` déclare désormais son propre `proxy_pass` explicite
+et complet (`proxy_pass http://127.0.0.1:3000/auth/login;`, etc.) plutôt
+que de réutiliser `api-proxy.conf` tel quel. Un `proxy_pass` sans
+substitution de préfixe (URI fixe, indépendante de ce que la `location`
+a matché) est le comportement correct pour une correspondance exacte.
+Trouvé en testant réellement le flux (curl → `Cannot POST /` reçu tel
+quel, pas juste supposé), pas en relisant la config à froid.
+
 ## Lancer en local
 
 ```bash
@@ -473,4 +502,31 @@ un email apparaît dans Mailpit avec un lien contenant le jeton,
 `reset-password` renvoie `204`, l'ancien mot de passe échoue (`401`), le
 nouveau fonctionne (`200`).
 
-*(sortie réelle à ajouter ici après exécution)*
+Exécuté (après correctif du bug `proxy_pass` documenté plus haut) :
+
+```text
+$ curl ... "$BASE/api/auth/forgot-password"   {email: test@example.com}
+{"message":"if_account_exists_email_sent"}
+
+$ curl -s http://127.0.0.1:8025/api/v1/messages | grep -o '"ID":"[^"]*"' | head -1
+"ID":"6NZyTHn4CfC1Tcgkq6Cd65"
+
+$ curl -s "http://127.0.0.1:8025/api/v1/message/6NZyTHn4CfC1Tcgkq6Cd65" | grep -o 'token=[a-f0-9]*'
+token=<TOKEN redacted -- jeton réel à usage unique, déjà consommé par le reset ci-dessous>
+
+$ curl ... "$BASE/api/auth/reset-password"   {token: ..., password: "un-nouveau-mot-de-passe-suffisamment-long"}
+(corps vide -- 204 No Content)
+
+$ curl ... "$BASE/api/auth/login"   {email: test@example.com, password: "une-phrase-de-passe-suffisamment-longue" (ancien)}
+ancien mdp -> 401
+
+$ curl ... "$BASE/api/auth/login"   {email: test@example.com, password: "un-nouveau-mot-de-passe-suffisamment-long" (nouveau)}
+nouveau mdp -> 200
+```
+
+**Flux complet confirmé de bout en bout** : email capturé par Mailpit avec
+jeton valide, réinitialisation acceptée (`204`), ancien mot de passe
+immédiatement rejeté (`401`), nouveau mot de passe fonctionnel (`200`).
+Premier essai réel bloqué par le bug `proxy_pass` ci-dessus (`Cannot
+POST /` avant même d'atteindre Mailpit) ; ce second essai, après
+correctif, est le premier succès de bout en bout de ce flux.
