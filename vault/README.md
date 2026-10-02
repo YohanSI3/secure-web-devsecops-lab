@@ -10,8 +10,33 @@ statiques vs dynamiques), voir [`Notes/vault/`](../Notes/vault/README.md).
 
 Installé, configuré, initialisé et descellé — jeu de clés de descellement
 et jeton racine déjà renouvelés une fois (voir « Bug réel » plus bas).
-Aucun secrets engine encore activé : prochaine étape, voir « Reste à
-faire » plus bas.
+Secrets engine KV v2 activé, `SESSION_SECRET` migré depuis
+`app/backend/.env` (voir « KV v2 : `SESSION_SECRET` » plus bas). Secrets
+engine `database` (identifiants PostgreSQL dynamiques), AppRole et
+intégration Node encore à faire — voir « Reste à faire » plus bas.
+
+## KV v2 : `SESSION_SECRET`
+
+[`scripts/setup-vault-kv.sh`](../scripts/setup-vault-kv.sh) active le
+moteur KV v2 au chemin `secret/` et y migre la valeur déjà présente dans
+`app/backend/.env` (pas de régénération : migrer un secret déjà en usage,
+pas en créer un nouveau).
+
+Exécuté :
+
+```text
+$ ./scripts/setup-vault-kv.sh
+Success! Enabled the kv-v2 secrets engine at: secret/
+=========== Secret Path ===========
+secret/data/secure-web-lab/backend
+--- Vérification (clés présentes, pas les valeurs) ---
+"SESSION_SECRET":
+```
+
+Confirme le moteur actif et le secret présent, sans jamais afficher sa
+valeur (script conçu pour n'extraire que les noms de clé du JSON retourné
+par `vault kv get`, jamais les valeurs — voir
+[`scripts/setup-vault-kv.sh`](../scripts/setup-vault-kv.sh)).
 
 ## Installation : dépôt apt officiel HashiCorp, pas les dépôts Ubuntu
 
