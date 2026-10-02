@@ -187,6 +187,21 @@ pas garder ouvert, dans un outil qui partage son contexte, un fichier qui
 en contient" — fermer/déplacer un tel fichier dès qu'il n'est plus
 nécessaire à l'écran, pas seulement après usage initial.
 
+**Dernier filet de sécurité qui a effectivement fonctionné** : malgré
+tout ce qui précède, l'ancien jeton racine (déjà révoqué à ce stade, donc
+mort) a quand même été écrit en clair dans une première version de cette
+section — erreur de documentation, pas de saisie cette fois. `git push`
+a été **rejeté par la push protection GitHub** (`GH013`, détection
+`HashiCorp Vault Root Service Token`) avant d'atteindre le dépôt distant.
+Corrigé en redactant la valeur et en amendant le commit local (jamais
+poussé avec succès, donc rien à réécrire côté remote). Exactement le
+scénario pour lequel ce filet existe (voir
+[`.github/README.md#secrets-scan--gitleaks-en-ci-en-plus-du-secret-scanning-natif-github`](../.github/README.md#secrets-scan--gitleaks-en-ci-en-plus-du-secret-scanning-natif-github)) :
+une erreur humaine (ou ici, de l'assistant générant la documentation) a
+bien lieu, et c'est la couche automatisée qui l'arrête avant publication —
+pas la vigilance individuelle seule, qui avait déjà failli deux fois dans
+cet incident précis.
+
 ## Reste à faire
 
 - Initialisation + descellement (première vérification réelle à faire
