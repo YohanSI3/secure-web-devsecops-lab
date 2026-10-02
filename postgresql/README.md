@@ -145,14 +145,14 @@ Nginx en Phase 2 (où la rotation a dû être mise en place à la main), rien
 à faire ici : à vérifier une fois (`cat /etc/logrotate.d/postgresql-common`)
 plutôt qu'à reconstruire une rotation déjà fournie par le paquet.
 
-## Reste à faire (prochaine étape)
+## fail2ban : jail dédiée aux échecs d'authentification
 
-**fail2ban pour les échecs d'authentification PostgreSQL** : étendre
-l'infrastructure fail2ban déjà en place (Phase 2, côté Nginx) avec une
-jail dédiée aux lignes `FATAL: password authentication failed for user`
-des logs PostgreSQL (`/var/log/postgresql/postgresql-16-main.log`,
-désormais avec l'hôte distant grâce à `%h`) — pas encore fait, prochaine
-étape après vérification des changements ci-dessus.
+L'infrastructure fail2ban déjà en place (Phase 2, côté Nginx) a été
+étendue avec une jail `postgresql-auth`, qui dépend justement du `%h`
+ajouté ci-dessus à `log_line_prefix` — voir
+[`fail2ban/README.md#postgresql-auth--étend-fail2ban-à-un-service-non-http`](../fail2ban/README.md#postgresql-auth--étend-fail2ban-à-un-service-non-http)
+pour le détail (filtre, portée réelle limitée vu que PostgreSQL n'est
+jamais exposé au-delà de `127.0.0.1`).
 
 ## Scripts
 

@@ -33,7 +33,18 @@ echo '10.0.0.1 - - [10/Sep/2026:12:00:00 +0000] "GET /wp-login.php HTTP/1.1" 404
 fail2ban-regex "$TMP_LOG" "${REPO_ROOT}/fail2ban/filter.d/nginx-404-flood.conf" || true
 rm -f "$TMP_LOG"
 
+echo "--- Auto-test du filtre personnalisé postgresql-auth ---"
+# Ligne synthétique au format du log_line_prefix durci (voir
+# scripts/harden-postgresql.sh : '%m [%p] %q%u@%d %h ') -- valide la
+# présence de <HOST> dans le filtre avant de compter sur un vrai échec
+# d'authentification pour le tester.
+TMP_LOG="$(mktemp)"
+echo '2026-10-02 12:00:00.000 UTC [12345] secure_web_lab_app@secure_web_lab 10.0.0.1 FATAL:  password authentication failed for user "secure_web_lab_app"' > "$TMP_LOG"
+fail2ban-regex "$TMP_LOG" "${REPO_ROOT}/fail2ban/filter.d/postgresql-auth.conf" || true
+rm -f "$TMP_LOG"
+
 echo "--- Vérification ---"
 sudo fail2ban-client status
 sudo fail2ban-client status nginx-botsearch
 sudo fail2ban-client status nginx-404-flood
+sudo fail2ban-client status postgresql-auth
