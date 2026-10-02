@@ -6,3 +6,11 @@
 # Clés/certificats, où qu'ils traînent, par précaution.
 *.key
 *.pem
+
+# Ne devrait de toute façon jamais vivre dans le dépôt (voir vault/README.md
+# -- sortie de `vault operator init`/`rekey`, à garder hors du dépôt), mais
+# filet de sécurité si jamais ça arrive : motif corrigé après un premier
+# essai raté (`Vault_keys.txt` ne matchait pas le fichier réel `Vault_keys`,
+# sans extension).
+vault/Vault_keys*
+Vault_keys*
