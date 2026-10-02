@@ -227,20 +227,107 @@ bien lieu, et c'est la couche automatisée qui l'arrête avant publication —
 pas la vigilance individuelle seule, qui avait déjà failli deux fois dans
 cet incident précis.
 
+## Secrets engine `database` : identifiants PostgreSQL dynamiques
+
+[`scripts/setup-vault-postgresql-engine.sh`](../scripts/setup-vault-postgresql-engine.sh) :
+
+- Crée le rôle PostgreSQL `vault_admin` (`CREATEROLE`, membre de
+  `secure_web_lab_app` avec `ADMIN OPTION` — peut accorder cette
+  appartenance à d'autres rôles sans être `SUPERUSER`).
+- Configure la connexion Vault → PostgreSQL
+  (`database/config/secure-web-lab`) avec ce rôle.
+- Définit un rôle Vault (`database/roles/secure-web-lab-app`) dont
+  l'instruction de création (`creation_statements`) fait `CREATE ROLE
+  "{{name}}" ... IN ROLE secure_web_lab_app` — le rôle dynamique hérite
+  des privilèges de `secure_web_lab_app` par simple appartenance, sans
+  `GRANT` supplémentaire à répéter par identifiant émis. `VALID UNTIL
+  '{{expiration}}'` ceinture-et-bretelles côté PostgreSQL lui-même (le
+  SGBD refuse une connexion expirée indépendamment de Vault).
+  `default_ttl=1h`/`max_ttl=24h`.
+
+### `pg_hba.conf` : `+secure_web_lab_app` plutôt qu'un nom de rôle fixe
+
+Problème direct avec le resserrement fait plus tôt dans cette phase
+([`postgresql/README.md`](../postgresql/README.md)) : la règle
+`host secure_web_lab secure_web_lab_app 127.0.0.1/32 ...` ne matche que ce
+nom de rôle exact, alors que Vault génère un nom différent à chaque
+identifiant dynamique (ex. `v-root-secure-w-...-<timestamp>`) —
+impossible à lister à l'avance. Remplacé par
+`host secure_web_lab +secure_web_lab_app 127.0.0.1/32 ...` dans
+[`pg_hba.conf`](pg_hba.conf) : le préfixe `+` fait matcher non pas un nom
+de rôle précis mais **l'appartenance** à ce rôle — couvre à la fois
+`secure_web_lab_app` lui-même (un rôle est membre de lui-même) et tout
+rôle dynamique créé `IN ROLE secure_web_lab_app`, sans jamais élargir
+l'accès au-delà de ce qui en hérite réellement. Ligne séparée ajoutée pour
+`vault_admin` (connexion propre à Vault, jamais réutilisée par
+l'application).
+
+Vérifié sans régression après redéploiement (`/health` toujours
+`{"status":"ok","db":"ok"}` avec le rôle statique `secure_web_lab_app`
+inchangé) avant de passer au test des identifiants dynamiques.
+
+### Vérification : émission, usage réel, puis révocation réelle
+
+```text
+$ ./scripts/setup-vault-postgresql-engine.sh
+CREATE ROLE
+GRANT ROLE
+Success! Enabled the database secrets engine at: database/
+Success! Data written to: database/config/secure-web-lab
+Success! Data written to: database/roles/secure-web-lab-app
+lease_id           database/creds/secure-web-lab-app/uqDT7m1dCQKso4HqS3LLVjk6
+lease_duration     1h
+username           v-root-secure-w-QLV6C2JUTTSwZrSCe1yz-1790960926
+
+$ psql -h 127.0.0.1 -U v-root-secure-w-QLV6C2JUTTSwZrSCe1yz-1790960926 -d secure_web_lab -c "SELECT current_user, session_user;"
+                  current_user                   |                  session_user
+-------------------------------------------------+-------------------------------------------------
+ v-root-secure-w-QLV6C2JUTTSwZrSCe1yz-1790960926 | v-root-secure-w-QLV6C2JUTTSwZrSCe1yz-1790960926
+(1 row)
+
+$ vault lease revoke database/creds/secure-web-lab-app/uqDT7m1dCQKso4HqS3LLVjk6
+All revocation operations queued successfully!
+
+$ sudo -u postgres psql -c "SELECT rolname FROM pg_roles WHERE rolname = 'v-root-secure-w-QLV6C2JUTTSwZrSCe1yz-1790960926';"
+ rolname
+---------
+(0 rows)
+
+$ psql -h 127.0.0.1 -U v-root-secure-w-QLV6C2JUTTSwZrSCe1yz-1790960926 -d secure_web_lab -c "SELECT 1;"
+psql: error: connection to server at "127.0.0.1", port 5432 failed: FATAL:  no pg_hba.conf entry for host "127.0.0.1", user "v-root-secure-w-QLV6C2JUTTSwZrSCe1yz-1790960926", database "secure_web_lab", SSL encryption
+```
+
+**Rotation réelle confirmée de bout en bout**, pas seulement documentée :
+identifiant émis à la demande, accès effectivement équivalent à
+`secure_web_lab_app` (`current_user` le confirme), puis `vault lease
+revoke` a réellement exécuté `DROP ROLE` côté PostgreSQL (`0 rows`, pas
+juste une expiration comptable côté Vault) — l'ancien identifiant est
+désormais aussi inutilisable qu'un rôle qui n'a jamais existé.
+
+**Observé, pas un bug** : une fois le rôle supprimé, l'échec de connexion
+affiche `no pg_hba.conf entry` plutôt qu'un échec d'authentification
+classique. PostgreSQL évalue `pg_hba.conf` avant de vérifier le mot de
+passe ; pour une règle `+secure_web_lab_app`, il doit d'abord résoudre
+l'appartenance au groupe du rôle qui se connecte — impossible pour un rôle
+qui n'existe plus du tout, d'où ce message plutôt qu'un rejet de mot de
+passe. Comportement cohérent, juste un message différent de celui qu'on
+pourrait intuitivement attendre pour un rôle "supprimé".
+
+**Détail à noter pour l'étape suivante (AppRole)** : le nom généré,
+`v-root-secure-w-...`, inclut `root` parce que l'émission a été demandée
+avec le jeton racine (Vault inclut le nom d'affichage du jeton appelant
+dans le nom du rôle dynamique). Une fois le backend authentifié via
+AppRole plutôt que le jeton racine, ce préfixe changera en conséquence —
+signal visible, dans les noms de rôle PostgreSQL eux-mêmes, de qui a
+réellement demandé chaque identifiant.
+
 ## Reste à faire
 
-- Initialisation + descellement (première vérification réelle à faire
-  avant de poursuivre).
-- Secrets engine `database` pour PostgreSQL : identifiants dynamiques à
-  durée de vie limitée pour le rôle applicatif, rôle admin Vault dédié
-  côté PostgreSQL.
-- Secrets engine KV v2 pour `SESSION_SECRET`.
 - Policy en lecture seule + authentification AppRole pour le backend
-  (jamais le jeton racine).
-- Intégration Node : récupération des secrets au démarrage, gestion du
-  renouvellement/expiration des baux (`lease`).
-- Démonstration réelle d'une rotation (identifiants PostgreSQL révoqués à
-  expiration, backend en obtient de nouveaux).
+  (jamais le jeton racine au quotidien).
+- Intégration Node : récupération des secrets au démarrage (KV +
+  identifiants PostgreSQL dynamiques), gestion du renouvellement/
+  expiration des baux (`lease`) pendant que le process tourne.
 - Secrets GitHub Actions pour la CI, séparation formelle secret
   applicatif/infra/CI (items du `ToDo.md` indépendants de Vault
   lui-même).

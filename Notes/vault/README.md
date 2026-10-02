@@ -76,6 +76,39 @@ Ce lab utilise les deux : KV pour `SESSION_SECRET`, dynamique pour les
 identifiants PostgreSQL du backend — voir
 [`vault/README.md`](../../vault/README.md) pour le détail.
 
+## Comment un secrets engine dynamique génère réellement un secret
+
+Vault ne sait rien de PostgreSQL par magie : un plugin dédié (ici
+`postgresql-database-plugin`) relie le moteur `database` générique à un
+système cible précis. Trois éléments définissent ce qu'il fait,
+configurés une fois par un opérateur (jamais par l'application elle-même) :
+
+- **Une connexion admin** vers le système cible (voir
+  [`vault/README.md`](../../vault/README.md) — un rôle PostgreSQL dédié,
+  capable de créer/détruire des rôles, jamais utilisé directement par
+  l'application).
+- **Des instructions de création/révocation **templatisées**, écrites en
+  SQL natif du système cible — Vault ne "connaît" pas PostgreSQL au-delà
+  d'exécuter ce SQL via la connexion admin, avec des gabarits
+  (`{{name}}`, `{{password}}`, `{{expiration}}`) que Vault remplit à
+  chaque émission avec des valeurs générées aléatoirement.
+- **Une durée de vie** (`default_ttl` : durée par défaut d'un bail,
+  `max_ttl` : plafond même avec renouvellements) — c'est elle qui rend le
+  secret "dynamique" plutôt qu'un simple générateur de mots de passe
+  one-shot : passé ce délai, Vault exécute lui-même l'instruction de
+  révocation, sans action humaine.
+
+Chaque fois qu'un client demande un identifiant
+(`vault read database/creds/<rôle>`), Vault exécute la création
+templatisée avec de nouvelles valeurs et retourne un **bail** (`lease`) —
+un identifiant qui référence ce secret précis, utilisé pour le
+renouveler ou le révoquer explicitement avant son expiration naturelle
+(`vault lease revoke <lease_id>`). La révocation n'est pas symbolique :
+elle exécute réellement l'instruction de révocation définie (typiquement
+`DROP ROLE` pour PostgreSQL) sur le système cible — après quoi
+l'identifiant n'existe plus du tout, pas seulement "n'est plus reconnu
+par Vault".
+
 ## Shamir Secret Sharing en détail : pourquoi 3 clés sur 5 suffisent
 
 Question naturelle en pratiquant le descellement pour la première fois :
