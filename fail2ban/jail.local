@@ -31,6 +31,19 @@ maxretry = 10
 findtime = 5m
 bantime  = 1h
 
+# Échecs d'authentification PostgreSQL (mauvais mot de passe ou accès
+# refusé par pg_hba.conf) -- voir postgresql/README.md pour le durcissement
+# côté base, et fail2ban/README.md pour la portée réelle de cette jail
+# (service en écoute loopback uniquement, jamais exposé par ufw).
+[postgresql-auth]
+enabled  = true
+port     = 5432
+filter   = postgresql-auth
+logpath  = /var/log/postgresql/postgresql-*-main.log
+maxretry = 5
+findtime = 10m
+bantime  = 1h
+
 # Le paquet fail2ban d'Ubuntu active cette jail par défaut, via
 # /etc/fail2ban/jail.d/defaults-debian.conf (fichier livré par le paquet,
 # non versionné ici) — sans rapport avec ce dépôt. Désactivée explicitement

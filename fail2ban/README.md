@@ -11,6 +11,7 @@ actions, comment fail2ban détecte puis agit), voir
 |---|---|---|---|---|
 | `nginx-botsearch` | livré avec fail2ban | logs des 3 vhosts | défaut du filtre | 1h |
 | `nginx-404-flood` | [`filter.d/nginx-404-flood.conf`](filter.d/nginx-404-flood.conf) (custom) | logs des 3 vhosts | 10 requêtes 404 / 5 min | 1h |
+| `postgresql-auth` | [`filter.d/postgresql-auth.conf`](filter.d/postgresql-auth.conf) (custom) | logs PostgreSQL | 5 échecs / 10 min (défaut `[DEFAULT]`) | 1h |
 | `sshd` | livré avec fail2ban | — | — | désactivée explicitement |
 
 `nginx-botsearch` couvre les scans génériques classiques (recherche de
@@ -34,6 +35,52 @@ ports déclarés dans [`firewall/README.md`](../firewall/README.md). Toute
 évolution des ports des vhosts doit être répercutée aux **deux** endroits
 (`fail2ban/jail.local` et les règles ufw), sinon une IP bannie reste
 capable d'atteindre un port omis.
+
+## `postgresql-auth` : étend fail2ban à un service non-HTTP
+
+Les deux jails `nginx-*` lisent des logs HTTP ; `postgresql-auth` est
+l'occasion de vérifier que fail2ban n'a rien de spécifique à Nginx —
+n'importe quel service qui journalise ses échecs dans un fichier texte
+peut avoir sa propre jail. Le filtre
+([`filter.d/postgresql-auth.conf`](filter.d/postgresql-auth.conf)) capture
+deux cas distincts, tous deux des tentatives d'accès refusées :
+
+- `FATAL: password authentication failed for user "..."` — mot de passe
+  incorrect pour un rôle qui existe et qui a le droit de se connecter
+  (selon `pg_hba.conf`).
+- `FATAL: no pg_hba.conf entry for host ...` — connexion refusée avant même
+  la vérification du mot de passe, parce qu'aucune règle
+  [`pg_hba.conf`](../postgresql/pg_hba.conf) n'autorise cette combinaison
+  hôte/base/rôle (voir [`postgresql/README.md`](../postgresql/README.md)
+  pour le resserrement qui rend ce deuxième cas possible : avant, `host all
+  all 127.0.0.1/32 ...` aurait laissé passer n'importe quelle combinaison
+  jusqu'à l'étape du mot de passe).
+
+**Préalable obligatoire : `%h` dans `log_line_prefix`.** Le filtre dépend
+de la présence de l'hôte distant dans chaque ligne de log — absent du
+`log_line_prefix` par défaut Ubuntu (`%m [%p] %q%u@%d `), ajouté
+explicitement par
+[`scripts/harden-postgresql.sh`](../scripts/harden-postgresql.sh)
+(`%m [%p] %q%u@%d %h `) précisément en prévision de cette jail. Sans `%h`,
+aucune IP n'apparaîtrait dans les lignes `FATAL`, et `<HOST>` dans le
+filtre ne capturerait jamais rien.
+
+**Portée réelle limitée, à la différence des jails `nginx-*`** :
+PostgreSQL n'écoute que sur `127.0.0.1` (`listen_addresses = localhost`,
+voir [`postgresql/README.md`](../postgresql/README.md)) et le port 5432
+n'est pas ouvert dans [`firewall/README.md`](../firewall/README.md) — un
+attaquant réseau externe ne peut structurellement jamais atteindre
+PostgreSQL pour déclencher cette jail, contrairement à Nginx qui est
+réellement exposé sur plusieurs ports. Cette jail protège contre un
+scénario différent (un processus déjà présent sur la même machine qui
+tenterait un accès non autorisé à la base, ou une erreur de configuration
+applicative répétée qui génère des échecs en boucle), pas contre une
+attaque réseau distante — même limite de fond que celle déjà documentée
+pour ufw sous WSL2
+([`firewall/README.md#limite-connue--portée-réelle-sous-wsl2`](../firewall/README.md#limite-connue--portée-réelle-sous-wsl2)) :
+la valeur ici est surtout de pratiquer la discipline (étendre fail2ban à
+un nouveau service, vérifier que le filtre matche réellement), pas de
+bloquer une menace réseau réelle sur ce lab.
 
 ## Découvert à l'exécution : jail `sshd` activée par défaut
 
@@ -259,3 +306,68 @@ pendant 1h. Pour débannir avant expiration :
 ```bash
 sudo fail2ban-client set nginx-404-flood unbanip 172.23.201.189
 ```
+
+### `postgresql-auth` : la limite `ignoreself` confirmée avec de vrais logs
+
+Même méthode que pour `nginx-404-flood` ci-dessus — exécuté après
+`./scripts/setup-fail2ban.sh` (auto-test du filtre déjà confirmé
+`1 matched`, voir plus haut) :
+
+```bash
+for i in $(seq 1 6); do
+  PGPASSWORD=wrongpass psql -h 127.0.0.1 -U secure_web_lab_app -d secure_web_lab -c "SELECT 1;" 2>&1 | tail -1
+done
+sudo fail2ban-client status postgresql-auth
+sudo grep postgresql-auth /var/log/fail2ban.log | tail -20
+```
+
+```text
+connection to server at "127.0.0.1", port 5432 failed: FATAL:  password authentication failed for user "secure_web_lab_app"
+[... x6]
+
+Status for the jail: postgresql-auth
+|- Filter
+|  |- Currently failed: 0
+|  |- Total failed:     0
+|  `- File list:        /var/log/postgresql/postgresql-16-main.log
+`- Actions
+   |- Currently banned: 0
+   |- Total banned:     0
+   `- Banned IP list:
+
+2026-10-02 17:27:11,596 fail2ban.filter [1937]: INFO [postgresql-auth] Ignore 127.0.0.1 by ignoreself rule
+[... 12 lignes "Ignore 127.0.0.1 by ignoreself rule" au total pour 6 échecs
+     réels -- deux fois plus que de tentatives, sans explication confirmée ;
+     possiblement un effet du backend pyinotify qui retraite une même écriture
+     de log en plusieurs événements, à creuser si ça devient pertinent, pas
+     bloquant pour la conclusion de ce test]
+```
+
+Ligne réelle du log PostgreSQL correspondante (confirme au passage que
+`%h` fonctionne comme prévu — `127.0.0.1` bien présent) :
+
+```text
+2026-10-02 17:27:11.590 CEST [2530] secure_web_lab_app@secure_web_lab 127.0.0.1 FATAL:  password authentication failed for user "secure_web_lab_app"
+```
+
+**Confirme précisément l'analyse faite avant ce test** : le filtre *voit*
+et *matche* bien chaque échec réel (`Ignore 127.0.0.1 by ignoreself rule`
+n'apparaît que pour une ligne qui a déjà matché le `failregex` — fail2ban
+n'évalue `ignoreself` qu'après un match positif, jamais avant), donc la
+chaîne détection fonctionne de bout en bout jusqu'à cette étape.
+`Currently failed: 0`/`Total failed: 0` ne signifient donc pas "le filtre
+ne voit rien" (comme lors du bug de backend découvert plus haut avec
+`nginx-botsearch`) mais "chaque hit détecté a été immédiatement exempté" —
+même symptôme numérique (`0`), cause radicalement différente, confirmée
+cette fois par le log plutôt que supposée. `ignoreself` bloque la mise en
+banniste avant même d'incrémenter le compteur de la jail, pas seulement
+l'action de bannissement final.
+
+Conclusion pratique, déjà annoncée avant ce test mais désormais vérifiée :
+tant que PostgreSQL n'écoute que sur `127.0.0.1`/`::1`
+([`postgresql/README.md`](../postgresql/README.md)), `postgresql-auth` ne
+bannira jamais personne dans cette topologie — toute connexion possible
+partage par construction l'adresse qu'`ignoreself` exempte toujours. Jail
+conservée pour sa valeur pédagogique (étendre fail2ban à un nouveau
+service, filtre réel vérifié contre de vrais logs) plutôt que pour une
+protection opérationnelle réelle sur ce lab précis.

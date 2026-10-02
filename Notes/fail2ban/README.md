@@ -44,9 +44,25 @@ temps réel au niveau réseau. Conséquences :
 - un bannissement est temporaire (`bantime`) : passé ce délai, l'IP est de
   nouveau autorisée à se connecter et peut recommencer.
 
+## Pas spécifique à HTTP : n'importe quel log texte peut avoir sa jail
+
+fail2ban ne sait rien de Nginx ni de HTTP par construction — une jail est
+juste la combinaison d'un **filtre** (expression régulière sur du texte,
+avec `<HOST>` capturant une adresse) et d'un **fichier de log** à
+surveiller. Rien n'empêche de cibler n'importe quel autre service tant
+qu'il journalise ses échecs dans un fichier, avec l'adresse source quelque
+part dans la ligne — démontré concrètement avec une jail PostgreSQL
+ajoutée après coup (voir
+[`fail2ban/README.md#postgresql-auth--étend-fail2ban-à-un-service-non-http`](../../fail2ban/README.md#postgresql-auth--étend-fail2ban-à-un-service-non-http)) :
+même mécanique (filtre + `logpath` + seuil), appliquée à un format de log
+et des messages d'erreur complètement différents de ceux de Nginx.
+
 ## Suite
 
 Phase 2 du `ToDo.md` terminée. Voir [`nginx/README.md`](../../nginx/README.md)
 pour le détail de chaque point traité ensuite (TLS, rate limiting,
 contrôle des tailles de requêtes, timeouts, divulgation de version,
-journalisation, rotation de logs).
+journalisation, rotation de logs). Étendu ensuite à PostgreSQL une fois ce
+service introduit en Phase 5 (voir section précédente) — fail2ban n'est pas
+un sujet qui se referme avec Nginx, il revient dès qu'un nouveau service
+journalise des échecs d'authentification.
