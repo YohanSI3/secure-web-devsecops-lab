@@ -23,6 +23,9 @@ concepts et l'outillage du domaine ; les choix concrets pour ce dépôt
   gratuits déployés dans ce lab et de leur équivalent commercial de
   référence, pour se repérer dans ce qui se fait aujourd'hui dans
   l'industrie sans dépendre d'une licence payante ici.
+- [`separation-secrets.md`](separation-secrets.md) — pourquoi isoler les
+  secrets applicatifs, d'infrastructure et de CI dans des magasins
+  distincts plutôt qu'un coffre unique (Phase 4).
 
 ## Le principe organisateur : "shift left"
 
