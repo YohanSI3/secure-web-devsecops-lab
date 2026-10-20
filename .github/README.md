@@ -240,6 +240,76 @@ uniquement par un pipeline automatisé (jamais construit ni uploadé
 manuellement). `actions/upload-artifact` avec `retention-days: 30` évite
 une accumulation indéfinie côté GitHub.
 
+## Secrets GitHub Actions pour la CI
+
+Phase 4 du `ToDo.md`. État réel vérifié (`grep -rn "secrets\." .github/workflows/*.yml`) :
+seul `secrets.GITHUB_TOKEN` est utilisé (dans
+[`secrets-scan.yml`](workflows/secrets-scan.yml), voir plus haut) — un
+jeton **généré automatiquement par GitHub** pour chaque run, jamais un
+secret à créer ou gérer soi-même. **Aucun secret configuré manuellement
+n'est nécessaire aujourd'hui** : ce dépôt n'a ni déploiement, ni API
+externe, ni service tiers payant à authentifier depuis la CI. Noté ici
+explicitement plutôt que d'en créer un artificiel juste pour illustrer le
+mécanisme — un secret qui ne protège rien de réel serait du bruit, pas de
+la rigueur.
+
+### Comment en ajouter un correctement, le jour où le besoin apparaît
+
+Exemple concret plausible pour ce projet : un futur déploiement automatisé
+de [`app/static-site/`](../app/static-site/) ou de
+[`app/backend/`](../app/backend/) vers un VPS, nécessitant une clé SSH ou
+un jeton d'API.
+
+1. **Jamais la valeur en clair dans un fichier de workflow** — toujours
+   via `Settings > Secrets and variables > Actions > New repository
+   secret` (ou `environment secret` si le secret ne doit être visible que
+   pour un environnement de déploiement précis, ex. `prod` seulement).
+2. **Référencé via `${{ secrets.NOM_DU_SECRET }}`**, jamais interpolé
+   dans une commande shell construite par concaténation de chaîne
+   (injection de commande si le secret contenait un caractère spécial) —
+   passer par une variable d'environnement de l'étape :
+   ```yaml
+   - name: Déploiement
+     env:
+       DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+     run: ./scripts/deploy.sh
+   ```
+3. **Scope le plus étroit possible** : un jeton d'API avec seulement les
+   permissions nécessaires au déploiement (jamais un jeton admin
+   généraliste réutilisé "parce qu'il traîne déjà"), idéalement un
+   `environment secret` plutôt qu'un secret de dépôt si seule une branche
+   précise (`main`) doit pouvoir s'en servir — GitHub permet de restreindre
+   un environnement à des branches protégées.
+4. **Masqué automatiquement dans les logs** par GitHub dès lors qu'il
+   transite par `secrets.*` — mais ce masquage repose sur une
+   correspondance de valeur exacte : un secret transformé (encodé en
+   base64, par exemple) avant d'être affiché ne serait **pas** masqué.
+   Toujours vérifier une fois en conditions réelles qu'aucune étape
+   n'affiche la valeur transformée plutôt que de supposer le masquage
+   infaillible.
+
+### Séparation secret applicatif / infra / CI
+
+Classification réelle des secrets de ce projet, pas un principe abstrait
+— voir [`Notes/devsecops/separation-secrets.md`](../Notes/devsecops/separation-secrets.md)
+pour le raisonnement général (pourquoi isoler ces trois catégories plutôt
+qu'un coffre unique) :
+
+| Catégorie | Secrets concrets | Où ils vivent | Qui/quoi y accède |
+|---|---|---|---|
+| **Applicatif** | `SESSION_SECRET`, identifiants PostgreSQL du backend | Vault (KV v2 + secrets engine `database`, voir [`vault/README.md`](../vault/README.md)) | Le backend Node, via AppRole, en lecture seule |
+| **Infrastructure** | Mot de passe du rôle `vault_admin` (PostgreSQL), clés de descellement Vault, jeton racine Vault | Vault lui-même (le mot de passe `vault_admin`, voir [`scripts/setup-vault-postgresql-engine.sh`](../scripts/setup-vault-postgresql-engine.sh)) / détenu par l'opérateur humain hors du dépôt (clés de descellement, jeton racine, voir [`vault/README.md`](../vault/README.md)) | L'opérateur humain pour l'administration ponctuelle ; jamais l'application |
+| **CI** | Aucun aujourd'hui (`secrets.GITHUB_TOKEN` automatique seulement) | GitHub Actions (`Settings > Secrets and variables > Actions`), le jour où un vrai secret CI existera | Les workflows, jamais l'application en cours d'exécution ni Vault |
+
+Trois magasins de secrets **distincts et sans recouvrement** : un secret
+CI compromis (le jour où il y en aura un) ne donne aucun accès à Vault ni
+à l'application en production, et inversement — un jeton AppRole
+backend compromis ne donne aucun accès à GitHub Actions. Aucun secret
+d'une catégorie n'est jamais réutilisé dans une autre, même quand ce
+serait techniquement possible (ex. ne jamais faire lire `VAULT_TOKEN`
+depuis un secret GitHub Actions pour un usage CI qui n'en a pas
+réellement besoin).
+
 ## Dependabot
 
 [`dependabot.yml`](dependabot.yml) — surveille uniquement les versions des

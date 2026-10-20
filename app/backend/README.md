@@ -263,6 +263,83 @@ brute-force. Détail complet dans
   `'unsafe-inline'`, jamais ajouté volontairement (même raison que le
   CSS déjà externalisé sur `index.html` depuis la Phase 1).
 
+## Vault : secrets récupérés au démarrage, jamais stockés en `.env`
+
+Phase 4 du `ToDo.md`. Avant : `DATABASE_URL` (mot de passe PostgreSQL en
+clair) et `SESSION_SECRET` vivaient dans `app/backend/.env`. Désormais,
+seule une **identité de machine** (`VAULT_ADDR`, `VAULT_ROLE_ID`,
+`VAULT_SECRET_ID` — voir [`.env.example`](.env.example)) y reste ; les
+deux vrais secrets applicatifs sont récupérés depuis Vault à chaque
+démarrage ([`src/vault.js`](src/vault.js)). Détail des choix côté Vault
+(policy, secrets engines, AppRole) dans
+[`vault/README.md`](../../vault/README.md) ; concepts généraux dans
+[`Notes/vault/`](../../Notes/vault/README.md).
+
+- **`fetch` natif, aucune dépendance npm supplémentaire** : Vault expose
+  une API HTTP/JSON classique, suffisamment simple pour ne pas justifier
+  d'ajouter `node-vault` (et sa propre surface de supply-chain à
+  surveiller) juste pour quelques appels — cohérent avec le choix déjà
+  fait de construire l'authentification à la main plutôt que d'ajouter
+  une dépendance lourde pour un besoin ciblé.
+- **`main()` asynchrone dans `src/index.js`** : les secrets sont récupérés
+  *avant* de `require('./db')` et les routes — ces modules restent
+  inchangés (ils lisent toujours `process.env.DATABASE_URL`/
+  `SESSION_SECRET`), seul le moment où ces variables sont renseignées a
+  changé (désormais après un aller-retour Vault, plus depuis `.env`
+  directement).
+- **`encodeURIComponent` systématique sur le mot de passe dynamique** :
+  déjà appris à la dure sur le mot de passe statique du rôle applicatif
+  (voir plus haut, le `/` d'un mot de passe base64 qui cassait le
+  parsing d'URI) — s'applique tout autant à un mot de passe généré par
+  Vault, dont le jeu de caractères exact n'est pas garanti par ce code
+  côté Node.
+- **Renouvellement périodique, pas de nouvel identifiant à chaque fois**
+  : le jeton Vault (`token_ttl=15m`) et le bail PostgreSQL (`default_ttl=1h`)
+  sont renouvelés à mi-vie (`sys/leases/renew` / `auth/token/renew-self`)
+  plutôt que ré-émis — le pool `pg` existant reste valide tant que le
+  bail est renouvelé, puisque Vault prolonge simplement la validité du
+  **même** rôle PostgreSQL déjà en usage côté `db.js`, sans qu'aucune
+  reconnexion ne soit nécessaire.
+- **Limite assumée, pas contournée** : si le renouvellement du bail
+  PostgreSQL échoue réellement (ex. `max_ttl` atteint, Vault inaccessible
+  trop longtemps), le process s'arrête (`process.exit(1)`) plutôt que de
+  continuer avec un identifiant bientôt révoqué par PostgreSQL
+  lui-même. Remplacer le pool `pg` à chaud, en cours de vie du process,
+  sans jamais interrompre une requête en cours, demanderait un design
+  plus complexe (double pool pendant la transition, bascule atomique) —
+  non fait ici : un simple crash (et un redémarrage, qui relance tout le
+  flux d'authentification Vault depuis le début) reste plus honnête
+  qu'un contournement partiel pour ce lab. Le jeton Vault lui-même
+  n'a pas cette limite : sa perte n'affecte aucune connexion déjà
+  ouverte, une reconnexion AppRole silencieuse suffit.
+
+### Vérification
+
+```text
+$ npm start
+backend listening on 127.0.0.1:3000
+
+$ curl -s http://127.0.0.1:3000/health
+{"status":"ok","db":"ok"}
+```
+
+**Bug réel rencontré pendant ce test, pas lié au code applicatif** :
+premier essai échoué avec `Vault is sealed` (503) — le service Vault
+avait redémarré (et donc re-scellé, l'état descellé n'étant jamais
+persisté, voir
+[`Notes/vault/README.md#scellédescellé-sealunseal--le-concept-central-de-vault`](../../Notes/vault/README.md#scellédescellé-sealunseal--le-concept-central-de-vault))
+depuis la dernière session de travail sur ce lab. `main().catch()` a
+réagi exactement comme prévu : message clair, process arrêté plutôt que
+de tourner dans un état cassé — aucune requête HTTP n'a jamais atteint
+`app.listen()`, cohérent avec le `curl` resté silencieux côté client en
+attendant. Corrigé en redescellant Vault
+(`vault operator unseal` x3), sans aucun changement de code — un rappel
+qu'exploiter Vault pour de vrai implique cette étape manuelle après
+chaque redémarrage du service, documenté comme limite opérationnelle du
+mode `shamir` à une seule machine plutôt que comme un défaut à corriger
+(voir [`vault/README.md`](../../vault/README.md) pour l'auto-unseal comme
+évolution possible).
+
 ## Nginx : `/api/` en reverse proxy
 
 [`nginx/snippets/api-proxy.conf`](../../nginx/snippets/api-proxy.conf),

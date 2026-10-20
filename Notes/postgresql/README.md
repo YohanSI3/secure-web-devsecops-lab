@@ -64,6 +64,26 @@ n'aient la moindre chance d'être évaluées. Le resserrement doit donc
 **retirer** la ligne générique, pas seulement en ajouter une plus précise
 à côté.
 
+## Appartenance à un rôle (`IN ROLE`) et correspondance par groupe (`+role`)
+
+Un rôle PostgreSQL peut être **membre** d'un autre rôle
+(`CREATE ROLE x IN ROLE y;` ou `GRANT y TO x;`) — le membre **hérite**
+alors des privilèges du rôle dont il est membre (si `INHERIT`, valeur par
+défaut), sans qu'aucun `GRANT` supplémentaire sur les objets eux-mêmes ne
+soit nécessaire. Un rôle est également considéré membre de lui-même pour
+ce genre de vérification — propriété qui a son importance dans
+`pg_hba.conf` (voir plus bas).
+
+`pg_hba.conf` peut exploiter directement cette notion d'appartenance :
+préfixer le nom de rôle d'un `+` dans la colonne USER
+(`+nom_du_role_groupe`) fait matcher non pas un rôle précis, mais
+**n'importe quel rôle membre** de ce rôle — y compris le rôle lui-même.
+Utile dès qu'un ensemble de rôles (pas un seul nom fixe et connu à
+l'avance) doit partager la même règle d'accès réseau : voir
+[`postgresql/README.md`](../../postgresql/README.md) pour le cas concret
+de ce lab (identifiants PostgreSQL émis dynamiquement par Vault, un nom
+différent à chaque fois, tous membres du même rôle applicatif).
+
 ## Modèle de privilèges : `GRANT`/`REVOKE`, le pseudo-rôle `PUBLIC`, et l'exception du propriétaire
 
 Au-delà de `pg_hba.conf` (qui décide **si une connexion réseau est
