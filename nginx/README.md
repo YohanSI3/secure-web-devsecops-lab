@@ -90,6 +90,40 @@ Nginx depuis les sources en modifiant sa chaîne de version — les deux
 hors de portée d'un simple ajustement de configuration, et non retenus ici
 pour cette raison.
 
+**Bug réel, découvert bien après la Phase 1** : la CI (`nginx-lint`,
+voir [`.github/workflows/nginx-lint.yml`](../.github/workflows/nginx-lint.yml))
+a échoué avec `"server_tokens" directive is duplicate in
+/etc/nginx/conf.d/security.conf:6`, alors qu'une seule déclaration de
+`server_tokens` existe dans tout ce dépôt. Diagnostic réel (ajout
+temporaire d'une étape de debug affichant le `nginx.conf` stock avant de
+supposer la cause) : les versions récentes du paquet `nginx` Ubuntu
+ajoutent désormais elles-mêmes, par défaut, `server_tokens build;` au
+niveau `http` du `nginx.conf` stock (non versionné dans ce dépôt) — un
+défaut qui n'existait pas quand la Phase 1 a été écrite à l'origine.
+Contrairement à `ssl_protocols` (qui **fusionne** par addition entre deux
+déclarations au même niveau, voir
+[`Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md`](../Notes/nginx/tls/protocoles-tls-heritage-et-fusion.md)),
+`server_tokens` déclaré deux fois au même niveau est une **erreur de
+syntaxe pure** — nginx refuse de démarrer, pas de comportement de repli
+silencieux. `build` n'est de toute façon pas équivalent à `off` (masque
+le numéro de version mais peut encore exposer une étiquette de build) :
+notre déclaration explicite doit rester la seule à survivre, pas le
+défaut (plus faible) du paquet.
+
+Corrigé en retirant chirurgicalement cette ligne du `nginx.conf` stock
+avant toute vérification de syntaxe — `sed -i '/^\s*server_tokens\b/d'
+/etc/nginx/nginx.conf`, dans
+[`.github/workflows/nginx-lint.yml`](../.github/workflows/nginx-lint.yml)
+**et** dans
+[`scripts/deploy-nginx-config.sh`](../scripts/deploy-nginx-config.sh) :
+la CI installe toujours la version `nginx` courante (donc touchée
+immédiatement), la machine réelle de ce lab a sa version figée
+(`apt-mark hold`, Phase 1) donc pas encore affectée concrètement —
+mais le jour où elle sera mise à jour/réinstallée, le même conflit s'y
+reproduirait sans ce correctif déjà en place. Repéré en CI avant de
+toucher la machine réelle, pas l'inverse — exactement la valeur d'avoir
+cette vérification automatisée.
+
 ## Journalisation avancée
 
 [`conf.d/logging.conf`](conf.d/logging.conf) (niveau http, même logique

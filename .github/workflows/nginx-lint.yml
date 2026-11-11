@@ -12,10 +12,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # gixy (PyPI, dernière publication 2024-01-06, apparemment plus
+      # maintenu depuis) embarque sa propre copie de sre_parse qui
+      # référence SRE_FLAG_TEMPLATE -- retiré de la bibliothèque standard
+      # Python en 3.13 (re.TEMPLATE/re.T/SRE_FLAG_TEMPLATE, gh-105687),
+      # cassant gixy sur tout Python >= 3.13. `ubuntu-latest` est passé à
+      # Python 3.14 par défaut, rendant le problème concret ici -- gixy
+      # cassé sur Python >= 3.13 depuis cette version, pas une régression
+      # soudaine. Aucune version plus récente de gixy ne corrige ça (voir
+      # nginx/README.md), donc Python lui-même est épinglé à 3.12 (dernière
+      # version qui possède encore SRE_FLAG_TEMPLATE) pour cette seule
+      # étape, plutôt que de dépendre de la version système du runner.
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.12"
+
       - name: Install nginx and gixy
         run: |
           sudo apt-get update
-          sudo apt-get install -y nginx python3-pip
+          sudo apt-get install -y nginx
           pip install --user gixy
 
       # Reconstitue l'arborescence /etc/nginx attendue par nos fichiers,
@@ -32,6 +47,15 @@ jobs:
             name="$(basename "$f")"
             sudo ln -sf "/etc/nginx/sites-available/$name" "/etc/nginx/sites-enabled/$name"
           done
+
+          # Versions récentes du paquet nginx Ubuntu ajoutent elles-mêmes
+          # "server_tokens build;" au niveau http du nginx.conf stock (non
+          # versionné) -- entre en conflit (erreur "duplicate", pas une
+          # fusion comme ssl_protocols) avec notre propre déclaration,
+          # plus stricte (off, dans nginx/conf.d/security.conf). Une
+          # seule déclaration peut survivre : la nôtre. Voir
+          # nginx/README.md#protection-contre-divulgation-de-version.
+          sudo sed -i '/^\s*server_tokens\b/d' /etc/nginx/nginx.conf
 
       # nginx -t exige que les fichiers ssl_certificate/ssl_certificate_key
       # existent réellement (pas seulement une vérification de syntaxe) --

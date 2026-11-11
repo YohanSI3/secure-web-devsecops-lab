@@ -47,6 +47,44 @@ absente du runner CI par construction, voir
 en place : il suit les `include` comme le ferait Nginx lui-même, donc a
 besoin de la même reconstitution que `nginx -t`.
 
+### Deux bugs réels de dérive d'environnement, pas liés au contenu d'une PR
+
+Rencontrés en préparant une PR qui ne touchait pourtant à aucun fichier
+Nginx ni à ce workflow lui-même — la CI s'exécute sur un environnement
+qui change dans le temps indépendamment du contenu de ce dépôt, point
+qui vaut la peine d'être gardé en tête pour tout échec CI inattendu.
+
+**1. `server_tokens` signalé "duplicate"** : le paquet `nginx` Ubuntu a
+commencé à ajouter lui-même `server_tokens build;` par défaut dans le
+`nginx.conf` stock, en conflit avec notre propre `server_tokens off;`
+([`nginx/conf.d/security.conf`](../nginx/conf.d/security.conf)).
+Diagnostic réel (étape de debug temporaire affichant le `nginx.conf`
+stock, retirée une fois la cause confirmée) plutôt que supposé — détail
+complet, y compris pourquoi ce n'est pas un simple cas de fusion comme
+`ssl_protocols`, dans
+[`nginx/README.md`](../nginx/README.md#protection-contre-divulgation-de-version).
+Corrigé par un retrait chirurgical de cette ligne précise avant toute
+vérification de syntaxe, répliqué aussi dans
+[`scripts/deploy-nginx-config.sh`](../scripts/deploy-nginx-config.sh)
+pour la machine réelle du lab (pas encore touchée, sa version `nginx`
+étant figée par `apt-mark hold`, mais le même conflit s'y reproduirait
+le jour d'une mise à jour).
+
+**2. `gixy` cassé par une suppression dans la bibliothèque standard
+Python** : `NameError: name 'SRE_FLAG_TEMPLATE' is not defined`, venant
+du module `sre_parse` interne que `gixy` embarque. Vérifié plutôt que
+supposé : `gixy` (PyPI) n'a plus été publié depuis le 2024-01-06, et
+Python a retiré `SRE_FLAG_TEMPLATE`/`re.TEMPLATE`/`re.T` de sa
+bibliothèque standard en version **3.13** (gh-105687) — `gixy` est donc
+cassé sur tout Python ≥ 3.13 depuis la sortie de cette version, pas
+seulement depuis que `ubuntu-latest` a basculé sur Python 3.14 par
+défaut (ce changement de runner a juste rendu le problème visible ici).
+Aucune version plus récente de `gixy` ne corrige ce point — le correctif
+ne peut donc venir que de notre côté : `actions/setup-python@v7.1.0`
+épingle Python à la version **3.12** (la dernière à posséder encore
+`SRE_FLAG_TEMPLATE`) pour cette étape précise, plutôt que de dépendre de
+la version système, susceptible de changer à nouveau sans préavis.
+
 ### SAST : quatre rulesets ciblés, pas `--config auto`
 
 Semgrep propose `--config auto`, qui choisit des règles selon le contenu

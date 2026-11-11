@@ -36,6 +36,16 @@ if [[ -e /etc/nginx/sites-enabled/default ]]; then
   sudo rm /etc/nginx/sites-enabled/default
 fi
 
+# Versions récentes du paquet nginx Ubuntu ajoutent elles-mêmes
+# "server_tokens build;" au niveau http du nginx.conf stock (non
+# versionné) -- entre en conflit (erreur "duplicate", pas une fusion
+# comme ssl_protocols) avec notre propre déclaration, plus stricte (off,
+# dans nginx/conf.d/security.conf). Une seule déclaration peut survivre :
+# la nôtre. Découvert en CI (apt installe toujours la version courante)
+# avant de toucher cette machine (nginx figé par apt-mark hold depuis la
+# Phase 1) -- voir nginx/README.md#protection-contre-divulgation-de-version.
+sudo sed -i '/^\s*server_tokens\b/d' /etc/nginx/nginx.conf
+
 sudo nginx -t
 sudo systemctl reload nginx
 
