@@ -5,6 +5,10 @@ technologies utilisées, pourquoi on fait les choses en général — de quoi
 comprendre un sujet avant de l'implémenter. Rédigé comme un cours qu'on se
 donne à soi-même, pas comme la documentation d'un produit.
 
+Voir [`how-to-learn.md`](how-to-learn.md) pour un ordre de lecture
+recommandé à travers tout ce dossier, avec un résumé de ce que chaque
+sujet apprend et pourquoi.
+
 ## Notes vs documentation technique
 
 `Notes/` ne documente **pas** les choix d'implémentation propres à ce
