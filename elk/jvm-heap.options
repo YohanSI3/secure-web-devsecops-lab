@@ -1,0 +1,11 @@
+# Taille de heap JVM d'Elasticsearch pour ce lab -- déployé vers
+# /etc/elasticsearch/jvm.options.d/heap.options par
+# scripts/deploy-elasticsearch-config.sh. Voir elk/README.md.
+#
+# 2 Go : confortable pour le volume de logs de ce lab (quelques services,
+# pas un trafic de production), largement sous la RAM disponible
+# vérifiée (13 Go libres sur 15 Go total) -- Xms et Xmx volontairement
+# identiques, pratique recommandée par Elastic pour éviter un
+# redimensionnement du tas en cours de fonctionnement.
+-Xms2g
+-Xmx2g

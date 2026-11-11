@@ -1,0 +1,11 @@
+# Réglages spécifiques à ce lab, ajoutés à la suite de
+# /etc/kibana/kibana.yml par scripts/deploy-kibana-config.sh. Contrairement
+# à Elasticsearch (voir elk/README.md pour les deux bugs réels rencontrés
+# là-bas), le fichier par défaut de Kibana ne contient que des exemples
+# commentés -- aucun bloc auto-généré à préserver, un simple ajout en fin
+# de fichier suffit ici sans risque de clé YAML dupliquée.
+#
+# Boucle locale uniquement -- même principe que PostgreSQL/Vault/Mailpit/
+# Elasticsearch dans ce lab.
+server.host: "127.0.0.1"
+server.port: 5601

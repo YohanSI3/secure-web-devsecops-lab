@@ -1,0 +1,20 @@
+# Réglages spécifiques à ce lab, ajoutés par
+# scripts/deploy-elasticsearch-config.sh À LA SUITE du fichier
+# /etc/elasticsearch/elasticsearch.yml généré par le paquet (jamais en
+# remplacement complet -- voir elk/README.md pour le bug réel rencontré
+# en remplaçant tout le fichier, qui perdait path.data/path.logs ET les
+# réglages de l'auto-configuration de sécurité TLS/mots de passe).
+#
+# node.name doit rester cohérent avec cluster.initial_master_nodes
+# ci-dessous (bootstrap du nœud unique) -- les deux sont donc redéfinis
+# ensemble plutôt que l'un sans l'autre.
+cluster.name: secure-web-lab
+node.name: secure-web-lab-node-1
+cluster.initial_master_nodes: ["secure-web-lab-node-1"]
+
+# Boucle locale uniquement -- remplace http.host: 0.0.0.0 fixé par
+# l'auto-configuration de sécurité du paquet. Même principe que
+# PostgreSQL/Vault/Mailpit dans ce lab : aucun autre service que
+# Kibana/Logstash (sur la même machine) n'a besoin d'atteindre
+# Elasticsearch.
+http.host: 127.0.0.1
