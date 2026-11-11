@@ -12,10 +12,25 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # gixy (PyPI, dernière publication 2024-01-06, apparemment plus
+      # maintenu depuis) embarque sa propre copie de sre_parse qui
+      # référence SRE_FLAG_TEMPLATE -- retiré de la bibliothèque standard
+      # Python en 3.13 (re.TEMPLATE/re.T/SRE_FLAG_TEMPLATE, gh-105687),
+      # cassant gixy sur tout Python >= 3.13. `ubuntu-latest` est passé à
+      # Python 3.14 par défaut, rendant le problème concret ici -- gixy
+      # cassé sur Python >= 3.13 depuis cette version, pas une régression
+      # soudaine. Aucune version plus récente de gixy ne corrige ça (voir
+      # nginx/README.md), donc Python lui-même est épinglé à 3.12 (dernière
+      # version qui possède encore SRE_FLAG_TEMPLATE) pour cette seule
+      # étape, plutôt que de dépendre de la version système du runner.
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.12"
+
       - name: Install nginx and gixy
         run: |
           sudo apt-get update
-          sudo apt-get install -y nginx python3-pip
+          sudo apt-get install -y nginx
           pip install --user gixy
 
       # Reconstitue l'arborescence /etc/nginx attendue par nos fichiers,
