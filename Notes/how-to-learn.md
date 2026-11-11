@@ -12,9 +12,9 @@ Pour chaque entrée : ce que le sujet apprend en résumé, et pourquoi ça
 vaut la peine de le savoir — pas seulement pour ce projet, mais comme
 connaissance transférable.
 
-L'ordre suit globalement les phases du `ToDo.md`, avec deux écarts
-délibérés signalés en cours de route (Git et Vault), placés là où ils
-sont le plus utiles à comprendre plutôt que là où ils apparaissent
+L'ordre suit globalement les phases du `ToDo.md`, avec trois écarts
+délibérés signalés en cours de route (Git, Vault, et ELK), placés là où
+ils sont le plus utiles à comprendre plutôt que là où ils apparaissent
 chronologiquement dans le plan.
 
 ## 0. Avant tout : comment ce dossier est organisé
@@ -184,3 +184,30 @@ construit) — la lire avant aurait laissé les exemples abstraits.
   `rekey`/`generate-root` pour un vrai scénario de compromission. Le
   sujet le plus avancé du projet — n'a de sens qu'avec PostgreSQL et IAM
   déjà compris.
+
+## 8. Centraliser et observer (Phase 6 — logiquement en dernier aussi)
+
+Lu après tout le reste pour la même raison que Vault : cette section
+centralise et corrèle des logs produits par à peu près chaque composant
+précédent (Nginx, fail2ban, PostgreSQL, Vault) — sa valeur ne se voit
+qu'une fois ces sources déjà comprises individuellement.
+
+- [`elk/README.md`](elk/README.md) — pourquoi un moteur de recherche
+  plutôt qu'une base relationnelle pour des logs (index inversé), les
+  trois rôles de la chaîne ELK, et un principe partagé par Elasticsearch
+  et Kibana : keystore chiffré séparé du fichier de config en clair.
+- [`elk/elasticsearch.md`](elk/elasticsearch.md) — document/index/mapping,
+  le modèle nœud/cluster même à une seule machine (et le piège direct du
+  bootstrap à nœud unique), l'auto-configuration de sécurité du paquet
+  (TLS, mot de passe superuser générés au premier démarrage),
+  dimensionnement du tas JVM (`Xms`=`Xmx`, jamais toute la RAM).
+- [`elk/logstash.md`](elk/logstash.md) — le pipeline entrée/filtre/sortie,
+  les filtres `grok` pour structurer un format de log texte libre,
+  Logstash vs Filebeat et pourquoi les combiner. *Lu en préparation :
+  pas encore déployé dans ce lab au moment de l'écriture.*
+- [`elk/kibana.md`](elk/kibana.md) — Kibana comme simple client
+  d'Elasticsearch (aucune donnée propre hors ses objets sauvegardés), le
+  jeton d'enrôlement (rejoindre un cluster sans jamais partager le mot de
+  passe superuser — même logique que l'AppRole Vault), et pourquoi des
+  clés de chiffrement internes absentes désactivent silencieusement des
+  API entières (Alerting) plutôt que d'échouer bruyamment.
