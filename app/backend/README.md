@@ -389,6 +389,58 @@ a matché) est le comportement correct pour une correspondance exacte.
 Trouvé en testant réellement le flux (curl → `Cannot POST /` reçu tel
 quel, pas juste supposé), pas en relisant la config à froid.
 
+## Maintenance des dépendances : jamais une acceptation automatique des PR Dependabot
+
+Chaque bump proposé par Dependabot (voir
+[`.github/README.md#dependabot`](../../.github/README.md#dependabot))
+passe par la même rigueur qu'une implémentation initiale avant d'être
+mergé — fusionné sur une branche de test séparée, jamais sur la base
+de la confiance seule dans l'outil.
+
+**Bump majeur `express` 4 → 5** : revue de code avant d'accepter — toutes
+les routes de ce backend sont des chemins string simples (`/health`,
+`/auth`, `/admin`, `/ping`, `/me`, `/register`, `/login`...), aucun
+wildcard, aucune regex, aucun chemin en tableau — exactement les motifs
+touchés par la réécriture `path-to-regexp` v8 d'Express 5. `req.param()`/
+`res.send(status, body)` (signatures retirées en v5) : absents du code.
+`asyncHandler()` maison ([`src/routes/auth.js`](src/routes/auth.js))
+devient redondant avec la gestion native des promesses rejetées
+d'Express 5, mais reste sans danger à garder (un simple `.catch(next)`
+supplémentaire, idempotent).
+
+**3 vulnérabilités transitives réelles trouvées et corrigées en route**
+(sur deux lots de bumps distincts — `dotenv`/`nodemailer`/`pg` d'un côté,
+`express` de l'autre) : `body-parser` (déni de service, élevé),
+`proxy-addr` (usurpation d'IP via sous-réseau IPv4-mappé-en-IPv6,
+**critique** — pertinent précisément ici puisque `trust proxy` repose
+sur une détection d'IP fiable, voir plus haut), `qs` (déni de service,
+modéré). `npm audit fix` (sans `--force`) a suffi dans les deux cas — 0
+vulnérabilité restante, aucune dépendance majeure forcée au-delà de ce
+qui était déjà proposé.
+
+Vérifié en conditions réelles (pas seulement `npm install` propre) sur
+les deux branches séparément — même séquence qu'à la vérification
+initiale de la Phase 5 :
+
+```text
+$ curl -s http://127.0.0.1:3000/health
+{"status":"ok","db":"ok"}
+
+$ curl .../auth/register   {email: deptest@example.com}
+{"id":"3","email":"deptest@example.com","role":"user"}
+$ curl .../auth/me
+{"id":"3","role":"user"}
+$ curl .../admin/ping   (avant promotion)
+403
+$ curl -X POST .../auth/logout
+204
+```
+
+Résultat identique sur les deux branches (`deptest@example.com` pour
+dotenv/nodemailer/pg, `deptest2@example.com` pour express) — aucune
+régression constatée sur l'inscription, la session, le refus RBAC, ni la
+déconnexion.
+
 ## Lancer en local
 
 ```bash
