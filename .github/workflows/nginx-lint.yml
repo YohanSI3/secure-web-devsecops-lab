@@ -33,6 +33,15 @@ jobs:
             sudo ln -sf "/etc/nginx/sites-available/$name" "/etc/nginx/sites-enabled/$name"
           done
 
+          # Versions récentes du paquet nginx Ubuntu ajoutent elles-mêmes
+          # "server_tokens build;" au niveau http du nginx.conf stock (non
+          # versionné) -- entre en conflit (erreur "duplicate", pas une
+          # fusion comme ssl_protocols) avec notre propre déclaration,
+          # plus stricte (off, dans nginx/conf.d/security.conf). Une
+          # seule déclaration peut survivre : la nôtre. Voir
+          # nginx/README.md#protection-contre-divulgation-de-version.
+          sudo sed -i '/^\s*server_tokens\b/d' /etc/nginx/nginx.conf
+
       # nginx -t exige que les fichiers ssl_certificate/ssl_certificate_key
       # existent réellement (pas seulement une vérification de syntaxe) --
       # certificats jetables, jamais utilisés que par ce job.
@@ -45,14 +54,6 @@ jobs:
               -out "/etc/nginx/ssl/$env/server.crt" \
               -subj "/CN=ci-placeholder"
           done
-
-      # Débogage temporaire : "server_tokens" signalé comme dupliqué dans
-      # security.conf alors qu'il n'apparaît qu'une fois dans ce dépôt --
-      # à retirer une fois la cause confirmée (voir nginx/README.md).
-      - name: DEBUG -- contenu du nginx.conf stock du paquet Ubuntu
-        run: |
-          cat /etc/nginx/nginx.conf
-          grep -rn "server_tokens" /etc/nginx/ || true
 
       - name: nginx -t (syntaxe + validation sémantique)
         run: sudo nginx -t
