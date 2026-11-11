@@ -46,6 +46,14 @@ jobs:
               -subj "/CN=ci-placeholder"
           done
 
+      # Débogage temporaire : "server_tokens" signalé comme dupliqué dans
+      # security.conf alors qu'il n'apparaît qu'une fois dans ce dépôt --
+      # à retirer une fois la cause confirmée (voir nginx/README.md).
+      - name: DEBUG -- contenu du nginx.conf stock du paquet Ubuntu
+        run: |
+          cat /etc/nginx/nginx.conf
+          grep -rn "server_tokens" /etc/nginx/ || true
+
       - name: nginx -t (syntaxe + validation sémantique)
         run: sudo nginx -t
 
