@@ -33,3 +33,13 @@ pas de version gratuite équivalente, à l'inverse), Vault, et Elastic
 Security en sont des exemples typiques — le choix « gratuit » fait ici
 correspond à la version communautaire de l'outil, pas nécessairement à
 l'absence totale d'offre payante pour ce même nom.
+
+Rencontré concrètement dans ce lab, pas seulement en théorie : le
+connecteur **Email** de Kibana Alerting (notifier par email quand une
+règle se déclenche) est réservé à la licence **Gold** (payante) —
+indisponible sur la licence **Basic** (gratuite) utilisée ici, qui ne
+laisse que les connecteurs **Index** et **Server log**. Même moteur
+d'alerte open source dans les deux cas ; seule la liste des
+destinations de notification change selon le palier de licence. Détail
+réel et contournement choisi dans
+[`elk/README.md`](../../elk/README.md#alerting--licence-gold-requise-pour-le-connecteur-email-non-disponible-sur-ce-lab).

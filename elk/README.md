@@ -22,10 +22,16 @@ n'avait pas de mérite.
 
 ## État actuel
 
-Elasticsearch installé et configuré, pas encore démarré en conditions
-réelles au moment de l'écriture de cette section — prochaine étape
-« Vérification » ci-dessous. Logstash/Filebeat (ingestion), Kibana
-(dashboards) et les alertes restent à faire, voir « Reste à faire ».
+Phase 6 terminée : Elasticsearch, Kibana, Filebeat et Logstash installés
+et configurés ; ingestion fonctionnelle pour les quatre sources de logs
+de ce lab (Nginx, fail2ban, PostgreSQL, Vault) ; dashboard Kibana à
+4 panneaux, alerting sur les bannissements fail2ban, et corrélation
+simple IP suspectes / bannissements — tout vérifié avec de vrais
+événements (voir « Kibana : dashboards, alerting, corrélation » plus
+bas). Cette section « État actuel » date du tout début de la phase
+(avant même le premier démarrage réel d'Elasticsearch) ; les sections
+suivantes du document, écrites au fil de l'eau, restent la source la
+plus à jour pour le détail de chaque étape.
 
 ## Installation : dépôt apt officiel Elastic, ligne 9.x
 
@@ -383,6 +389,23 @@ réelle de document :
   Corrigé en ajoutant `"cluster": ["monitor", "manage_index_templates"]`
   au rôle — toujours pas `manage`/`all`, qui irait bien au-delà du
   nécessaire.
+
+### Sixième bug réel, découvert plus tard par la CI (pas localement)
+
+Bloqué à l'ouverture de la PR, pas pendant les tests manuels en WSL2 :
+Semgrep (`bash.lang.correctness.unquoted-expansion.unquoted-variable-expansion-in-command`)
+a relevé 4 occurrences de `${LS_SETTINGS}` développées sans guillemets
+dans [`scripts/setup-logstash-elasticsearch-role.sh`](../scripts/setup-logstash-elasticsearch-role.sh),
+où `LS_SETTINGS="--path.settings /etc/logstash"` était une chaîne
+scalaire contenant volontairement deux mots. Fonctionnait par chance
+dans ce cas précis (le shell redécoupe la chaîne sur l'espace au moment
+de l'expansion, reproduisant par coïncidence les deux arguments voulus),
+mais reste un découpage implicite fragile en général — voir
+[`Notes/devsecops/sast-dast-sca.md`](../Notes/devsecops/sast-dast-sca.md)
+pour le principe. Corrigé en remplaçant la chaîne scalaire par un
+tableau bash (`LS_SETTINGS=(--path.settings /etc/logstash)`), développé
+partout avec `"${LS_SETTINGS[@]}"` — chaque élément passé comme un
+argument distinct, sans dépendre du découpage du shell.
 
 ## Vérification
 

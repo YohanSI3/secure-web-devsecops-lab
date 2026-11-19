@@ -26,7 +26,14 @@ USER_NAME="logstash_internal"
 # /etc/logstash/) retombe sur le répertoire d'installation
 # (/usr/share/logstash/config/), pas /etc/logstash/, et échoue (chemin
 # non inscriptible par l'utilisateur logstash).
-LS_SETTINGS="--path.settings /etc/logstash"
+# Tableau bash, pas une chaîne scalaire : un scalaire développé sans
+# guillemets (${LS_SETTINGS}) se refait découper par le shell sur les
+# espaces au moment de l'expansion, un comportement fragile que l'étape
+# de lint sécurité de la CI (semgrep, bash.lang.correctness) refuse à
+# raison -- un tableau développé avec "${LS_SETTINGS[@]}" passe chaque
+# élément comme un argument distinct et correctement délimité, sans
+# dépendre du découpage implicite du shell.
+LS_SETTINGS=(--path.settings /etc/logstash)
 
 # Deux privilèges cluster distincts, tous deux découverts nécessaires en
 # pratique (voir elk/README.md pour le détail des deux incidents) :
@@ -54,7 +61,7 @@ if [[ ! -f /etc/logstash/logstash.keystore ]]; then
   # Pas de mot de passe sur le keystore lui-même -- l'accès est déjà
   # contrôlé par les permissions du système de fichiers, pas par un
   # second secret à gérer en plus pour un gain marginal à cette échelle.
-  echo y | sudo /usr/share/logstash/bin/logstash-keystore ${LS_SETTINGS} create
+  echo y | sudo /usr/share/logstash/bin/logstash-keystore "${LS_SETTINGS[@]}" create
   sudo chown logstash:logstash /etc/logstash/logstash.keystore
   sudo chmod 600 /etc/logstash/logstash.keystore
 fi
@@ -70,7 +77,7 @@ fi
 # à `add` ("LOGSTASH_ES_PASSWORD" en argument est bien stocké comme
 # "logstash_es_password", constaté en pratique) --
 # elk/logstash-pipeline.conf référence donc ${logstash_es_password}.
-if sudo /usr/share/logstash/bin/logstash-keystore ${LS_SETTINGS} list 2>/dev/null | grep -qx "logstash_es_password"; then
+if sudo /usr/share/logstash/bin/logstash-keystore "${LS_SETTINGS[@]}" list 2>/dev/null | grep -qx "logstash_es_password"; then
   echo "logstash_es_password déjà présente dans le keystore -- mot de passe Elasticsearch existant laissé inchangé (les deux doivent rester synchronisés ; voir --rotate pour un vrai changement coordonné, pas encore scripté)."
 else
   LOGSTASH_PASSWORD="$(openssl rand -hex 24)"
@@ -83,10 +90,10 @@ else
     }"
   echo
 
-  echo "${LOGSTASH_PASSWORD}" | sudo /usr/share/logstash/bin/logstash-keystore ${LS_SETTINGS} add logstash_es_password --stdin
+  echo "${LOGSTASH_PASSWORD}" | sudo /usr/share/logstash/bin/logstash-keystore "${LS_SETTINGS[@]}" add logstash_es_password --stdin
 
   unset LOGSTASH_PASSWORD
 fi
 
 echo "--- Vérification (pas le mot de passe lui-même) ---"
-sudo -u logstash /usr/share/logstash/bin/logstash-keystore ${LS_SETTINGS} list
+sudo -u logstash /usr/share/logstash/bin/logstash-keystore "${LS_SETTINGS[@]}" list
