@@ -80,6 +80,35 @@ réglages sans toucher au keystore, laissant une configuration
 incohérente (vu en pratique, voir
 [`elk/README.md`](../../elk/README.md) pour le bug réel correspondant).
 
+## Privilèges cluster vs privilèges d'index : deux axes indépendants
+
+Le modèle de sécurité d'Elasticsearch distingue deux catégories de
+privilèges, orthogonales :
+
+- **privilèges d'index** — ce qu'un rôle peut faire sur des **données**
+  dans des index précis (`read`, `write`, `create_index`...), scopés par
+  motif de nom (`secure-web-lab-logs-*`, par exemple).
+- **privilèges cluster** — ce qu'un rôle peut faire au niveau du
+  **cluster lui-même**, indépendamment de tout index précis (`monitor` :
+  consulter l'état de santé/les statistiques ; `manage_index_templates` :
+  créer/modifier les modèles qui définissent comment de futurs index
+  **seront** structurés avant même qu'ils existent ; `manage`/`all` :
+  bien plus large, administration complète).
+
+Un rôle scopé à un seul usage (écrire dans un index précis, par exemple)
+a donc deux endroits où lui accorder *trop peu* : la liste des index
+autorisés, ET la liste des privilèges cluster — un client qui ne fait
+"que" écrire des documents peut très bien avoir besoin, en coulisses,
+d'un privilège cluster pour des opérations préalables (vérifier l'état
+du cluster, poser un modèle d'index) sans jamais lire ni écrire la
+moindre donnée elle-même. Voir
+[`elk/README.md`](../../elk/README.md#bugs-réels--une-chaîne-de-cinq-chacun-découvert-en-conditions-réelles)
+pour un cas réel rencontré dans ce lab : deux privilèges cluster (`monitor`,
+`manage_index_templates`) manquants, sans aucun rapport apparent avec le
+besoin final ("juste écrire des logs"), chacun faisant planter le
+pipeline Logstash au démarrage avant même la première tentative
+d'écriture.
+
 ## Dimensionnement du tas JVM : `Xms` = `Xmx`, jamais la mémoire totale
 
 Elasticsearch tourne sur une JVM (Java), qui a son propre espace mémoire

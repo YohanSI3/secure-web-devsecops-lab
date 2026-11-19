@@ -1,0 +1,60 @@
+# Configuration Filebeat de ce lab -- remplace entièrement le fichier
+# livré par le paquet (contrairement à Elasticsearch/Kibana, le défaut
+# de Filebeat ne contient que des exemples commentés, aucun bloc
+# auto-généré à perdre -- voir elk/README.md). Déployé par
+# scripts/deploy-filebeat-config.sh vers /etc/filebeat/filebeat.yml.
+#
+filebeat.inputs:
+  - type: filestream
+    id: nginx-access-logs
+    enabled: true
+    paths:
+      - /var/log/nginx/secure-web-lab-*.access.log
+    # Étiquette chaque événement : Logstash s'en sert pour appliquer le
+    # bon filtre grok selon la source (voir elk/logstash-pipeline.conf).
+    fields:
+      service: nginx
+      log_type: access
+    fields_under_root: false
+
+  - type: filestream
+    id: fail2ban-logs
+    enabled: true
+    paths:
+      - /var/log/fail2ban.log
+    fields:
+      service: fail2ban
+    fields_under_root: false
+
+  - type: filestream
+    id: postgresql-logs
+    enabled: true
+    paths:
+      - /var/log/postgresql/postgresql-*-main.log
+    fields:
+      service: postgresql
+    fields_under_root: false
+
+  # Vault n'écrit jamais dans un fichier de log -- seulement dans le
+  # journal systemd (voir Notes/vault/README.md) -- d'où un input
+  # "journald" plutôt que "filestream" ici, contrairement aux trois
+  # autres sources. "tail" plutôt que "head" : ne reprend que les
+  # nouveaux événements à partir du déploiement, pas tout l'historique
+  # du journal déjà accumulé.
+  - type: journald
+    id: vault-logs
+    enabled: true
+    seek: tail
+    units:
+      - vault.service
+    fields:
+      service: vault
+    fields_under_root: false
+
+setup.template.settings:
+  index.number_of_shards: 1
+
+# Boucle locale uniquement -- Logstash tourne sur la même machine (même
+# principe que PostgreSQL/Vault/Elasticsearch/Kibana dans ce lab).
+output.logstash:
+  hosts: ["127.0.0.1:5044"]

@@ -22,13 +22,14 @@ Les choix concrets pour ce lab sont dans
   dimensionnement du tas JVM.
 - [`logstash.md`](logstash.md) — la couche d'ingestion/transformation :
   pipeline entrée/filtre/sortie, filtres `grok`, différence avec
-  Filebeat et quand combiner les deux. *Pas encore déployé dans ce lab
-  au moment de l'écriture — note conceptuelle en préparation de cette
-  étape.*
+  Filebeat et quand combiner les deux.
 - [`kibana.md`](kibana.md) — la couche de visualisation/requête :
   rôle vis-à-vis d'Elasticsearch, jetons d'enrôlement, keystore propre,
   clés de chiffrement internes et pourquoi leur absence désactive
-  silencieusement des fonctionnalités entières.
+  silencieusement des fonctionnalités entières ; différence entre
+  Discover (documents bruts), Lens (visualisations agrégées) et tableaux
+  de bord ; Alerting (règles, connecteurs, fréquence d'action, cycle de
+  vie d'une alerte).
 
 ## Les trois rôles, et comment ils s'enchaînent
 
@@ -79,3 +80,29 @@ par la valeur d'apprentissage (stack historique de référence de
 l'industrie) plutôt que par une contrainte de ressources, voir
 [`elk/README.md`](../../elk/README.md) pour la vérification réelle des
 ressources disponibles avant ce choix.
+
+## Corrélation : ce que centraliser des logs permet, et ce qu'un vrai SIEM ajoute par-dessus
+
+Centraliser plusieurs sources dans un même index (plutôt qu'un index par
+service) est ce qui rend la corrélation possible au sens le plus simple
+du terme : un même champ (ici une adresse IP) peut être recherché à
+travers tous les services d'un coup, et deux événements de services
+différents peuvent être rapprochés simplement parce qu'ils partagent ce
+champ et une fenêtre de temps proche — sans ça, il faudrait rouvrir
+chaque fichier de log séparément et croiser les horodatages à la main.
+
+Ce que ce lab fait reste volontairement **manuel et visuel** : deux
+panneaux d'un même tableau de bord, filtrés sur des services différents,
+positionnés côte à côte — un humain qui regarde le tableau de bord fait
+le rapprochement lui-même (« cette IP apparaît dans les deux »), Kibana
+n'établit aucun lien automatique entre les deux panneaux. Un véritable
+moteur de corrélation SIEM (Splunk Enterprise Security, Elastic
+Security, Microsoft Sentinel) va plus loin : chaînage de règles
+(déclencher une alerte seulement si plusieurs conditions distinctes se
+vérifient dans une fenêtre de temps donnée, potentiellement à travers
+des dizaines de sources), scoring de risque cumulé par entité (IP,
+compte utilisateur) à travers le temps, enrichissement automatique
+(résolution géographique d'IP, réputation contre des listes de menaces
+connues) — des fonctionnalités qui dépassent largement la vérification
+« j'ai bien deux signaux pour la même IP, affichés l'un à côté de
+l'autre » que ce lab construit ici.

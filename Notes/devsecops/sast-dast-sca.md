@@ -19,6 +19,17 @@ Implémenté ici : **Semgrep OSS**
 ([`.github/workflows/sast.yml`](../../.github/workflows/sast.yml)),
 analyse essentiellement les scripts shell de ce dépôt.
 
+Exemple réel, pas seulement théorique, de ce que ce scan attrape : une
+variable multi-mots (`--path.settings /etc/logstash`) développée sans
+guillemets dans une commande
+([`scripts/setup-logstash-elasticsearch-role.sh`](../../scripts/setup-logstash-elasticsearch-role.sh))
+— fonctionnait par chance dans ce cas précis (aucun des deux mots ne
+contenait d'espace ni de caractère spécial), mais reste un découpage
+implicite du shell fragile en général (un chemin avec un espace
+casserait silencieusement la commande). Bloqué par la CI avant fusion,
+corrigé en tableau bash (`LS_SETTINGS=(--path.settings /etc/logstash)`,
+développé `"${LS_SETTINGS[@]}"`) plutôt qu'une chaîne scalaire.
+
 ## DAST — Dynamic Application Security Testing
 
 Analyse une **application en cours d'exécution**, de l'extérieur, comme
