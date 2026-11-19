@@ -4,14 +4,10 @@
 
 La couche d'ingestion/transformation de la stack ELK, entre les fichiers
 de logs bruts et Elasticsearch (voir [`README.md`](README.md) pour sa
-place dans la chaîne). **Pas encore déployé dans ce lab** au moment de
-l'écriture de cette note — contrairement à
-[`elasticsearch.md`](elasticsearch.md) et [`kibana.md`](kibana.md), les
-choix concrets ne sont donc pas encore dans
-[`elk/README.md`](../../elk/README.md), ils y seront ajoutés une fois
-cette étape faite. Note rédigée en préparation, pas après coup — reste
-du cours général applicable indépendamment du moment où l'implémentation
-suivra.
+place dans la chaîne). Les choix concrets pour ce lab (config Filebeat,
+filtre `grok`, compte Elasticsearch dédié, et une chaîne de cinq bugs
+réels rencontrés en la mettant en service) sont dans
+[`elk/README.md`](../../elk/README.md).
 
 ## Le pipeline : entrée, filtre, sortie
 

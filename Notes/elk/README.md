@@ -22,9 +22,7 @@ Les choix concrets pour ce lab sont dans
   dimensionnement du tas JVM.
 - [`logstash.md`](logstash.md) — la couche d'ingestion/transformation :
   pipeline entrée/filtre/sortie, filtres `grok`, différence avec
-  Filebeat et quand combiner les deux. *Pas encore déployé dans ce lab
-  au moment de l'écriture — note conceptuelle en préparation de cette
-  étape.*
+  Filebeat et quand combiner les deux.
 - [`kibana.md`](kibana.md) — la couche de visualisation/requête :
   rôle vis-à-vis d'Elasticsearch, jetons d'enrôlement, keystore propre,
   clés de chiffrement internes et pourquoi leur absence désactive
